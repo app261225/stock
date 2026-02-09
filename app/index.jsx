@@ -12,7 +12,7 @@ export default function LoginScreen() {
 
   const { signIn } = useSession();
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!username || !password) {
       Alert.alert('Error', 'Username dan password harus diisi');
       return;
@@ -20,15 +20,18 @@ export default function LoginScreen() {
 
     setLoading(true);
 
-    setTimeout(() => {
-      const result = signIn(username, password);
+    try {
+      const result = await signIn(username, password);
       
       if (!result.success) {
         Alert.alert('Login Gagal', result.error || 'Username atau password salah');
       }
-      
+    } catch (error) {
+      Alert.alert('Error', 'Terjadi kesalahan saat login');
+      console.error('Login error:', error);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -43,7 +46,7 @@ export default function LoginScreen() {
             <View style={styles.iconBadge}>
               <MaterialCommunityIcons name="package-variant" size={28} color="#2563eb" />
             </View>
-            <Text style={styles.appTitle}>Stock Managgement</Text>
+            <Text style={styles.appTitle}>Stock Management</Text>
           </View>
 
           {/* Login Form Card */}
@@ -61,6 +64,7 @@ export default function LoginScreen() {
                   value={username}
                   onChangeText={setUsername}
                   autoCapitalize="none"
+                  editable={!loading}
                 />
               </View>
             </View>
@@ -77,10 +81,12 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  editable={!loading}
                 />
                 <TouchableOpacity 
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeIcon}
+                  disabled={loading}
                 >
                   <MaterialCommunityIcons 
                     name={showPassword ? "eye-off" : "eye"} 
@@ -106,7 +112,7 @@ export default function LoginScreen() {
             {/* Dev Info - Compact */}
             <View style={styles.devInfo}>
               <MaterialCommunityIcons name="shield-key" size={14} color="#f59e0b" />
-              <Text style={styles.devInfoText}>admin / admin</Text>
+              <Text style={styles.devInfoText}>admin / admin123</Text>
             </View>
           </View>
         </View>

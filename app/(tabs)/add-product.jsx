@@ -1,129 +1,260 @@
-import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useState } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSession } from '../../contexts/AuthContext';
+import productService from '../../services/productService';
 
-export default function AddProduct() {
+export default function AddProductScreen() {
+  const { session } = useSession();
+  const [loading, setLoading] = useState(false);
+  
   const [formData, setFormData] = useState({
-    nama: '',
     sku: '',
-    stok: '',
-    minStok: '',
-    hargaModalYen: '',
-    hargaModalRp: '',
-    hargaJual: '',
+    nama_produk: '',
+    stock: '',
+    min_stock: '',
+    harga_modal_cny: '',
+    harga_modal_rp: '',
+    harga_jual_rp: '',
   });
 
-  const handleChange = (field, value) => {
+  const updateField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const validateForm = () => {
+    if (!formData.sku.trim()) {
+      Alert.alert('Error', 'SKU harus diisi');
+      return false;
+    }
+    if (!formData.nama_produk.trim()) {
+      Alert.alert('Error', 'Nama produk harus diisi');
+      return false;
+    }
+    if (!formData.stock || isNaN(parseInt(formData.stock))) {
+      Alert.alert('Error', 'Stock harus berupa angka');
+      return false;
+    }
+    if (!formData.harga_jual_rp || isNaN(parseInt(formData.harga_jual_rp))) {
+      Alert.alert('Error', 'Harga jual harus berupa angka');
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+
+    setLoading(true);
+
+    try {
+      const productData = {
+        sku: formData.sku.trim().toUpperCase(),
+        nama_produk: formData.nama_produk.trim(),
+        stock: parseInt(formData.stock) || 0,
+        min_stock: parseInt(formData.min_stock) || 5,
+        harga_modal_cny: parseFloat(formData.harga_modal_cny) || 0,
+        harga_modal_rp: parseFloat(formData.harga_modal_rp) || 0,
+        harga_jual_rp: parseFloat(formData.harga_jual_rp) || 0,
+        created_by: session?.user?.id,
+      };
+
+      await productService.create(productData);
+
+      Alert.alert(
+        'Success',
+        'Product berhasil ditambahkan!',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Reset form
+              setFormData({
+                sku: '',
+                nama_produk: '',
+                stock: '',
+                min_stock: '',
+                harga_modal_cny: '',
+                harga_modal_rp: '',
+                harga_jual_rp: '',
+              });
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Add product error:', error);
+      Alert.alert('Error', error.message || 'Gagal menambahkan product');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-      <ScrollView style={styles.container}>
-        <View style={styles.form}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.formCard}>
+          {/* SKU */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Nama Produk</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Masukkan nama produk"
-              value={formData.nama}
-              onChangeText={(value) => handleChange('nama', value)}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>SKU</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Masukkan SKU"
-              value={formData.sku}
-              onChangeText={(value) => handleChange('sku', value)}
-            />
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Stok</Text>
+            <Text style={styles.label}>SKU *</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="barcode" size={20} color="#6b7280" />
               <TextInput
                 style={styles.input}
-                placeholder="0"
-                keyboardType="numeric"
-                value={formData.stok}
-                onChangeText={(value) => handleChange('stok', value)}
-              />
-            </View>
-
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Min Stok</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0"
-                keyboardType="numeric"
-                value={formData.minStok}
-                onChangeText={(value) => handleChange('minStok', value)}
+                placeholder="e.g., SKU-001"
+                value={formData.sku}
+                onChangeText={(value) => updateField('sku', value.toUpperCase())}
+                autoCapitalize="characters"
+                editable={!loading}
               />
             </View>
           </View>
 
+          {/* Nama Produk */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Harga Modal (¥)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="0"
-              keyboardType="numeric"
-              value={formData.hargaModalYen}
-              onChangeText={(value) => handleChange('hargaModalYen', value)}
-            />
+            <Text style={styles.label}>Nama Produk *</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="package-variant" size={20} color="#6b7280" />
+              <TextInput
+                style={styles.input}
+                placeholder="e.g., Kemeja Flanel"
+                value={formData.nama_produk}
+                onChangeText={(value) => updateField('nama_produk', value)}
+                editable={!loading}
+              />
+            </View>
           </View>
 
+          {/* Stock Row */}
+          <View style={styles.rowGroup}>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.label}>Stock Awal *</Text>
+              <View style={styles.inputContainer}>
+                <MaterialCommunityIcons name="numeric" size={20} color="#6b7280" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="0"
+                  value={formData.stock}
+                  onChangeText={(value) => updateField('stock', value)}
+                  keyboardType="numeric"
+                  editable={!loading}
+                />
+              </View>
+            </View>
+
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.label}>Min Stock</Text>
+              <View style={styles.inputContainer}>
+                <MaterialCommunityIcons name="alert" size={20} color="#6b7280" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="5"
+                  value={formData.min_stock}
+                  onChangeText={(value) => updateField('min_stock', value)}
+                  keyboardType="numeric"
+                  editable={!loading}
+                />
+              </View>
+            </View>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.divider}>
+            <Text style={styles.dividerText}>Harga</Text>
+          </View>
+
+          {/* Harga Modal CNY */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Harga Modal (Rp)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="0"
-              keyboardType="numeric"
-              value={formData.hargaModalRp}
-              onChangeText={(value) => handleChange('hargaModalRp', value)}
-            />
+            <Text style={styles.label}>Harga Modal (CNY)</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="currency-cny" size={20} color="#6b7280" />
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                value={formData.harga_modal_cny}
+                onChangeText={(value) => updateField('harga_modal_cny', value)}
+                keyboardType="decimal-pad"
+                editable={!loading}
+              />
+            </View>
           </View>
 
+          {/* Harga Modal IDR */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Harga Jual (Rp)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="0"
-              keyboardType="numeric"
-              value={formData.hargaJual}
-              onChangeText={(value) => handleChange('hargaJual', value)}
-            />
+            <Text style={styles.label}>Harga Modal (IDR)</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.currencyPrefix}>Rp</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                value={formData.harga_modal_rp}
+                onChangeText={(value) => updateField('harga_modal_rp', value)}
+                keyboardType="numeric"
+                editable={!loading}
+              />
+            </View>
           </View>
 
-          <View style={styles.resultBox}>
-            <Text style={styles.resultLabel}>Untung (Rp & %)</Text>
-            <Text style={styles.resultValue}>Rp 0 (0%)</Text>
+          {/* Harga Jual IDR */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Harga Jual (IDR) *</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.currencyPrefix}>Rp</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                value={formData.harga_jual_rp}
+                onChangeText={(value) => updateField('harga_jual_rp', value)}
+                keyboardType="numeric"
+                editable={!loading}
+              />
+            </View>
           </View>
 
-          <TouchableOpacity style={styles.saveButton}>
-            <Text style={styles.saveButtonText}>Save</Text>
+          {/* Submit Button */}
+          <TouchableOpacity
+            style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="check-circle" size={20} color="#ffffff" />
+            <Text style={styles.submitButtonText}>
+              {loading ? 'Adding Product...' : 'Add Product'}
+            </Text>
           </TouchableOpacity>
+
+          <Text style={styles.noteText}>* Required fields</Text>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
-  container: {
-    flex: 1,
-  },
-  form: {
+  scrollContent: {
     padding: 16,
   },
+  formCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
   inputGroup: {
+    marginBottom: 16,
+  },
+  rowGroup: {
+    flexDirection: 'row',
+    gap: 12,
     marginBottom: 16,
   },
   label: {
@@ -132,55 +263,71 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 8,
   },
-  input: {
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  row: {
+  inputContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 16,
+    height: 48,
     gap: 12,
   },
-  halfWidth: {
+  input: {
     flex: 1,
+    fontSize: 15,
+    color: '#111827',
   },
-  resultBox: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  resultLabel: {
-    fontSize: 14,
+  currencyPrefix: {
+    fontSize: 15,
+    fontWeight: '600',
     color: '#6b7280',
-    marginBottom: 4,
   },
-  resultValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#10b981',
-  },
-  saveButton: {
-    backgroundColor: '#2563eb',
-    borderRadius: 8,
-    paddingVertical: 16,
+  divider: {
+    marginVertical: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  saveButtonText: {
+  dividerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9ca3af',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+  },
+  submitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563eb',
+    borderRadius: 12,
+    height: 52,
+    marginTop: 8,
+    gap: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#93c5fd',
+  },
+  submitButtonText: {
     color: '#ffffff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  noteText: {
+    fontSize: 12,
+    color: '#9ca3af',
+    textAlign: 'center',
+    marginTop: 12,
   },
 });

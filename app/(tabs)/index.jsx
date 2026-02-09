@@ -1,337 +1,211 @@
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Modal, Animated, Pressable, Dimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSession } from '../../contexts/AuthContext';
-import { useState, useEffect, useRef } from 'react';
+import productService from '../../services/productService';
+import stockLogService from '../../services/stockLogService';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CONTAINER_PADDING = 16;
-const CARD_GAP = 12;
-const CARD_WIDTH = (SCREEN_WIDTH - CONTAINER_PADDING * 2 - CARD_GAP) / 2;
-
-export default function Dashboard() {
+export default function DashboardScreen() {
   const { session } = useSession();
-  const [refreshing, setRefreshing] = useState(false);
-  const [showWelcomeDetails, setShowWelcomeDetails] = useState(false);
-  const [showActivityModal, setShowActivityModal] = useState(false);
-  const detailsHeight = useRef(new Animated.Value(0)).current;
-  
-  // Dummy metadata - will be replaced with Supabase real-time data
-  const [metadata, setMetadata] = useState({
-    last_stock_update: '2026-02-09T14:30:00Z', // TODO: From Supabase stock_logs table
-    updated_by: 'Admin User', // TODO: From Supabase users table join
-    total_products: 0, // TODO: Count from products table
-    total_stock: 0, // TODO: Sum from products table
-    low_stock: 0, // TODO: Count where stock <= min_stock
-    out_of_stock: 0, // TODO: Count where stock = 0
-    total_in: 0, // TODO: Sum ALL from stock_logs where type='IN'
-    total_out: 0, // TODO: Sum ALL from stock_logs where type='OUT'
-    stock_in_today: 0, // TODO: Sum from stock_logs where type='IN' AND date=today
-    stock_out_today: 0, // TODO: Sum from stock_logs where type='OUT' AND date=today
+  const [stats, setStats] = useState({
+    total: 0,
+    lowStock: 0,
+    outOfStock: 0,
+    healthy: 0,
   });
-
-  // Dummy recent activities - TODO: Replace with Supabase data
-  const [recentActivities, setRecentActivities] = useState([
-    // Example structure:
-    // {
-    //   id: '1',
-    //   type: 'IN',
-    //   product_name: 'Sample Product',
-    //   quantity: 10,
-    //   created_at: '2026-02-09T14:30:00Z',
-    //   created_by: 'Admin User'
-    // }
-  ]);
+  const [todayStats, setTodayStats] = useState({
+    totalIn: 0,
+    totalOut: 0,
+    transactionCount: 0,
+  });
+  const [recentLogs, setRecentLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
-    
-    // Register global function to open modal from header button
-    global.openActivityModal = () => setShowActivityModal(true);
-    
-    return () => {
-      delete global.openActivityModal;
-    };
   }, []);
 
-  useEffect(() => {
-    Animated.timing(detailsHeight, {
-      toValue: showWelcomeDetails ? 1 : 0,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-  }, [showWelcomeDetails]);
-
   const loadDashboardData = async () => {
-    // TODO: Fetch from Supabase
-    // const { data: products } = await supabase
-    //   .from('products')
-    //   .select('stock, min_stock');
-    // 
-    // const { data: lastLog } = await supabase
-    //   .from('stock_logs')
-    //   .select('created_at, users(full_name)')
-    //   .order('created_at', { ascending: false })
-    //   .limit(1)
-    //   .single();
-    // 
-    // const { data: activities } = await supabase
-    //   .from('stock_logs')
-    //   .select('*, products(nama_produk), users(full_name)')
-    //   .order('created_at', { ascending: false })
-    //   .limit(20);
-    //
-    // setRecentActivities(activities || []);
+    try {
+      setLoading(true);
+      
+      // Load stock stats
+      const stockStats = await productService.getStockStats();
+      setStats(stockStats);
+
+      // Load today's transaction stats
+      const todayStatsData = await stockLogService.getTodayStats();
+      setTodayStats(todayStatsData);
+
+      // Load recent logs
+      const logs = await stockLogService.getAll(5);
+      setRecentLogs(logs);
+    } catch (error) {
+      console.error('Load dashboard data error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadDashboardData();
     setRefreshing(false);
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
-    const options = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    };
-    return date.toLocaleDateString('id-ID', options);
-  };
+  }, []);
 
   const formatTime = (dateString) => {
-    if (!dateString) return '-';
     const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Baru saja';
-    if (diffMins < 60) return `${diffMins} menit lalu`;
-    if (diffHours < 24) return `${diffHours} jam lalu`;
-    if (diffDays < 7) return `${diffDays} hari lalu`;
-    
-    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
   };
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Selamat Pagi';
-    if (hour < 15) return 'Selamat Siang';
-    if (hour < 18) return 'Selamat Sore';
-    return 'Selamat Malam';
-  };
-
-  const stats = [
-    { 
-      icon: 'package-variant', 
-      label: 'Total Produk', 
-      value: metadata.total_products.toString(), 
-      color: '#3b82f6' 
-    },
-    { 
-      icon: 'chart-bar', 
-      label: 'Total Stok', 
-      value: metadata.total_stock.toString(), 
-      color: '#10b981' 
-    },
-    { 
-      icon: 'alert', 
-      label: 'Stok Menipis', 
-      value: metadata.low_stock.toString(), 
-      color: '#f59e0b' 
-    },
-    { 
-      icon: 'close-circle', 
-      label: 'Stok Habis', 
-      value: metadata.out_of_stock.toString(), 
-      color: '#ef4444' 
-    },
-    { 
-      icon: 'package-down', 
-      label: 'IN Hari Ini', 
-      value: metadata.stock_in_today.toString(), 
-      color: '#06b6d4' 
-    },
-    { 
-      icon: 'package-up', 
-      label: 'OUT Hari Ini', 
-      value: metadata.stock_out_today.toString(), 
-      color: '#f43f5e' 
-    },
-    { 
-      icon: 'archive-arrow-down', 
-      label: 'Total IN', 
-      value: metadata.total_in.toString(), 
-      color: '#8b5cf6' 
-    },
-    { 
-      icon: 'archive-arrow-up', 
-      label: 'Total OUT', 
-      value: metadata.total_out.toString(), 
-      color: '#ec4899' 
-    },
-  ];
-
-  const detailsHeightInterpolate = detailsHeight.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 140],
-  });
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563eb" />
+        <Text style={styles.loadingText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Welcome Card - Touchable */}
-        <Pressable onPress={() => setShowWelcomeDetails(!showWelcomeDetails)}>
-          <View style={styles.welcomeCard}>
-            <View style={styles.welcomeHeader}>
-              <View style={styles.welcomeLeft}>
-                <View style={styles.avatarContainer}>
-                  <MaterialCommunityIcons name="account-circle" size={48} color="#2563eb" />
-                </View>
-                <View style={styles.welcomeInfo}>
-                  <Text style={styles.greeting}>{getGreeting()},</Text>
-                  <Text style={styles.userName}>{session?.full_name || session?.username || 'User'}</Text>
-                </View>
-              </View>
-              <MaterialCommunityIcons 
-                name={showWelcomeDetails ? "chevron-up" : "chevron-down"} 
-                size={24} 
-                color="#6b7280" 
-              />
-            </View>
-            
-            {/* Collapsible Details */}
-            <Animated.View style={[styles.detailsContainer, { height: detailsHeightInterpolate, opacity: detailsHeight }]}>
-              <View style={styles.detailRow}>
-                <MaterialCommunityIcons name="login" size={16} color="#6b7280" />
-                <Text style={styles.detailLabel}>Last Login:</Text>
-                <Text style={styles.detailValue} numberOfLines={1}>
-                  {formatDate(session?.last_login)}
-                </Text>
-              </View>
-              
-              <View style={styles.divider} />
-              
-              <View style={styles.detailRow}>
-                <MaterialCommunityIcons name="update" size={16} color="#6b7280" />
-                <Text style={styles.detailLabel}>Last Update:</Text>
-                <Text style={styles.detailValue} numberOfLines={1}>
-                  {formatDate(metadata.last_stock_update)}
-                </Text>
-              </View>
-              
-              {metadata.updated_by && (
-                <>
-                  <View style={styles.divider} />
-                  <View style={styles.detailRow}>
-                    <MaterialCommunityIcons name="account" size={16} color="#6b7280" />
-                    <Text style={styles.detailLabel}>Updated By:</Text>
-                    <Text style={styles.detailValue} numberOfLines={1}>{metadata.updated_by}</Text>
-                  </View>
-                </>
-              )}
-            </Animated.View>
-          </View>
-        </Pressable>
-
-        {/* Stats Grid - 2 KOLOM LAYOUT */}
-        <View style={styles.statsContainer}>
-          {stats.map((stat, index) => (
-            <View 
-              key={index} 
-              style={[
-                styles.statCard,
-                { marginRight: index % 2 === 0 ? CARD_GAP : 0 }
-              ]}
-            >
-              <View style={[styles.iconContainer, { backgroundColor: `${stat.color}15` }]}>
-                <MaterialCommunityIcons name={stat.icon} size={24} color={stat.color} />
-              </View>
-              <View style={styles.statContent}>
-                <Text style={styles.statValue}>{stat.value}</Text>
-                <Text style={styles.statLabel} numberOfLines={1}>{stat.label}</Text>
-              </View>
-            </View>
-          ))}
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {/* Welcome Section */}
+      <View style={styles.welcomeSection}>
+        <View>
+          <Text style={styles.welcomeText}>Welcome back,</Text>
+          <Text style={styles.userName}>{session?.user?.full_name || session?.user?.username || 'User'}</Text>
         </View>
-      </ScrollView>
+        <View style={styles.roleBadge}>
+          <MaterialCommunityIcons name="shield-account" size={16} color="#8b5cf6" />
+          <Text style={styles.roleText}>{session?.user?.role || 'staff'}</Text>
+        </View>
+      </View>
 
-      {/* Recent Activity Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showActivityModal}
-        onRequestClose={() => setShowActivityModal(false)}
-      >
-        <Pressable 
-          style={styles.modalOverlay}
-          onPress={() => setShowActivityModal(false)}
-        >
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalTitleContainer}>
-                <MaterialCommunityIcons name="history" size={24} color="#111827" />
-                <Text style={styles.modalTitle}>Recent Activity</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowActivityModal(false)}>
-                <MaterialCommunityIcons name="close" size={24} color="#6b7280" />
-              </TouchableOpacity>
+      {/* Stock Overview Cards */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Stock Overview</Text>
+        <View style={styles.statsGrid}>
+          <View style={[styles.statCard, { backgroundColor: '#dbeafe' }]}>
+            <View style={styles.statIconContainer}>
+              <MaterialCommunityIcons name="package-variant" size={24} color="#2563eb" />
             </View>
-            
-            <ScrollView style={styles.modalBody}>
-              {recentActivities.length === 0 ? (
-                <View style={styles.emptyActivity}>
-                  <MaterialCommunityIcons name="history" size={64} color="#d1d5db" />
-                  <Text style={styles.emptyActivityText}>No recent activity</Text>
-                  <Text style={styles.emptyActivitySubtext}>
-                    Stock movements will appear here
+            <Text style={styles.statValue}>{stats.total}</Text>
+            <Text style={styles.statLabel}>Total Products</Text>
+          </View>
+
+          <View style={[styles.statCard, { backgroundColor: '#dcfce7' }]}>
+            <View style={styles.statIconContainer}>
+              <MaterialCommunityIcons name="check-circle" size={24} color="#16a34a" />
+            </View>
+            <Text style={styles.statValue}>{stats.healthy}</Text>
+            <Text style={styles.statLabel}>Healthy Stock</Text>
+          </View>
+
+          <View style={[styles.statCard, { backgroundColor: '#fef3c7' }]}>
+            <View style={styles.statIconContainer}>
+              <MaterialCommunityIcons name="alert" size={24} color="#f59e0b" />
+            </View>
+            <Text style={styles.statValue}>{stats.lowStock}</Text>
+            <Text style={styles.statLabel}>Low Stock</Text>
+          </View>
+
+          <View style={[styles.statCard, { backgroundColor: '#fee2e2' }]}>
+            <View style={styles.statIconContainer}>
+              <MaterialCommunityIcons name="close-circle" size={24} color="#ef4444" />
+            </View>
+            <Text style={styles.statValue}>{stats.outOfStock}</Text>
+            <Text style={styles.statLabel}>Out of Stock</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Today's Activity */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Today's Activity</Text>
+        <View style={styles.activityContainer}>
+          <View style={styles.activityCard}>
+            <View style={[styles.activityIcon, { backgroundColor: '#dcfce7' }]}>
+              <MaterialCommunityIcons name="package-down" size={24} color="#16a34a" />
+            </View>
+            <View style={styles.activityInfo}>
+              <Text style={styles.activityValue}>{todayStats.totalIn}</Text>
+              <Text style={styles.activityLabel}>Stock IN</Text>
+            </View>
+          </View>
+
+          <View style={styles.activityCard}>
+            <View style={[styles.activityIcon, { backgroundColor: '#fee2e2' }]}>
+              <MaterialCommunityIcons name="package-up" size={24} color="#ef4444" />
+            </View>
+            <View style={styles.activityInfo}>
+              <Text style={styles.activityValue}>{todayStats.totalOut}</Text>
+              <Text style={styles.activityLabel}>Stock OUT</Text>
+            </View>
+          </View>
+
+          <View style={styles.activityCard}>
+            <View style={[styles.activityIcon, { backgroundColor: '#dbeafe' }]}>
+              <MaterialCommunityIcons name="swap-horizontal" size={24} color="#2563eb" />
+            </View>
+            <View style={styles.activityInfo}>
+              <Text style={styles.activityValue}>{todayStats.transactionCount}</Text>
+              <Text style={styles.activityLabel}>Transactions</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Recent Activity */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          <TouchableOpacity onPress={() => global.openActivityModal?.()}>
+            <Text style={styles.viewAllText}>View All</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentLogs.length === 0 ? (
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons name="inbox" size={48} color="#9ca3af" />
+            <Text style={styles.emptyStateText}>No recent activity</Text>
+          </View>
+        ) : (
+          <View style={styles.logsList}>
+            {recentLogs.map((log) => (
+              <View key={log.id} style={styles.logItem}>
+                <View style={[
+                  styles.logIcon,
+                  { backgroundColor: log.type === 'IN' ? '#dcfce7' : '#fee2e2' }
+                ]}>
+                  <MaterialCommunityIcons 
+                    name={log.type === 'IN' ? 'package-down' : 'package-up'} 
+                    size={20} 
+                    color={log.type === 'IN' ? '#16a34a' : '#ef4444'}
+                  />
+                </View>
+                <View style={styles.logContent}>
+                  <Text style={styles.logProduct}>
+                    {log.product?.nama_produk || 'Unknown Product'}
+                  </Text>
+                  <Text style={styles.logDetail}>
+                    {log.type === 'IN' ? 'Stock IN' : 'Stock OUT'} • {log.quantity} units
                   </Text>
                 </View>
-              ) : (
-                recentActivities.map((activity, index) => (
-                  <View key={index} style={styles.activityItem}>
-                    <View style={[
-                      styles.activityIconContainer,
-                      { backgroundColor: activity.type === 'IN' ? '#ede9fe' : '#fce7f3' }
-                    ]}>
-                      <MaterialCommunityIcons 
-                        name={activity.type === 'IN' ? 'package-down' : 'package-up'} 
-                        size={20} 
-                        color={activity.type === 'IN' ? '#8b5cf6' : '#ec4899'} 
-                      />
-                    </View>
-                    <View style={styles.activityContent}>
-                      <Text style={styles.activityTitle}>{activity.product_name}</Text>
-                      <Text style={styles.activitySubtitle}>
-                        {activity.created_by} • {formatTime(activity.created_at)}
-                      </Text>
-                    </View>
-                    <Text style={[
-                      styles.activityQuantity,
-                      { color: activity.type === 'IN' ? '#10b981' : '#ef4444' }
-                    ]}>
-                      {activity.type === 'IN' ? '+' : '-'}{activity.quantity}
-                    </Text>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </View>
+                <Text style={styles.logTime}>{formatTime(log.created_at)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -340,208 +214,178 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
-  scrollView: {
+  loadingContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
   },
-  scrollContent: {
-    paddingTop: 16,
-    paddingBottom: 20,
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6b7280',
   },
-  welcomeCard: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginTop: 0,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    overflow: 'hidden',
-  },
-  welcomeHeader: {
+  welcomeSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#ffffff',
+    marginBottom: 8,
   },
-  welcomeLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#eff6ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  welcomeInfo: {
-    flex: 1,
-  },
-  greeting: {
-    fontSize: 13,
+  welcomeText: {
+    fontSize: 14,
     color: '#6b7280',
   },
   userName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#111827',
     marginTop: 2,
   },
-  detailsContainer: {
-    overflow: 'hidden',
-    marginTop: 12,
-  },
-  detailRow: {
+  roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f3e8ff',
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    gap: 8,
+    borderRadius: 20,
   },
-  detailLabel: {
+  roleText: {
     fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '500',
-    minWidth: 85,
+    fontWeight: '600',
+    color: '#8b5cf6',
+    textTransform: 'capitalize',
   },
-  detailValue: {
-    fontSize: 12,
-    color: '#111827',
-    flex: 1,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#f3f4f6',
-    marginVertical: 6,
-  },
-  statsContainer: {
-    paddingHorizontal: CONTAINER_PADDING,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  statCard: {
-    width: CARD_WIDTH,
-    flexDirection: 'row',
-    alignItems: 'center',
+  section: {
+    padding: 16,
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: CARD_GAP,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: 8,
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  statContent: {
-    flex: 1,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
-    lineHeight: 28,
-  },
-  statLabel: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '80%',
-    paddingTop: 8,
-  },
-  modalHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    marginBottom: 12,
   },
-  modalTitleContainer: {
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: '46%',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  statIconContainer: {
+    marginBottom: 8,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  activityContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  activityCard: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    backgroundColor: '#f9fafb',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
-  modalTitle: {
+  activityIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityValue: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#111827',
   },
-  modalBody: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 20,
-  },
-  emptyActivity: {
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyActivityText: {
-    fontSize: 16,
+  activityLabel: {
+    fontSize: 11,
     color: '#6b7280',
-    marginTop: 12,
-    fontWeight: '500',
+    marginTop: 2,
   },
-  emptyActivitySubtext: {
-    fontSize: 13,
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyStateText: {
+    fontSize: 14,
     color: '#9ca3af',
-    marginTop: 4,
+    marginTop: 8,
   },
-  activityItem: {
+  logsList: {
+    gap: 12,
+  },
+  logItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    gap: 12,
+    backgroundColor: '#f9fafb',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
-  activityIconContainer: {
+  logIcon: {
     width: 40,
     height: 40,
     borderRadius: 10,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  activityContent: {
+  logContent: {
     flex: 1,
-    marginLeft: 12,
   },
-  activityTitle: {
+  logProduct: {
     fontSize: 14,
     fontWeight: '600',
     color: '#111827',
+    marginBottom: 2,
   },
-  activitySubtitle: {
+  logDetail: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  logTime: {
     fontSize: 12,
     color: '#9ca3af',
-    marginTop: 2,
-  },
-  activityQuantity: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
+    fontWeight: '500',
   },
 });
