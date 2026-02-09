@@ -38,23 +38,26 @@ export default function LoginScreen() {
         style={styles.container}
       >
         <View style={styles.content}>
-          <View style={styles.logoContainer}>
-            <MaterialCommunityIcons name="package-variant" size={80} color="#2563eb" />
-            <Text style={styles.appTitle}>Stock Management</Text>
-            <Text style={styles.appSubtitle}>Inventory System</Text>
+          {/* Compact Header */}
+          <View style={styles.header}>
+            <View style={styles.iconBadge}>
+              <MaterialCommunityIcons name="package-variant" size={28} color="#2563eb" />
+            </View>
+            <Text style={styles.appTitle}>Stock Managgement</Text>
           </View>
 
+          {/* Login Form Card */}
           <View style={styles.formContainer}>
-            <Text style={styles.welcomeText}>Welcome Back!</Text>
-            <Text style={styles.subtitleText}>Login to continue</Text>
-
+            <Text style={styles.welcomeText}>Welcome Back</Text>
+            
+            {/* Username Input */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Username</Text>
               <View style={styles.inputContainer}>
                 <MaterialCommunityIcons name="account" size={20} color="#6b7280" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter username"
+                  placeholder="Username"
+                  placeholderTextColor="#9ca3af"
                   value={username}
                   onChangeText={setUsername}
                   autoCapitalize="none"
@@ -62,13 +65,14 @@ export default function LoginScreen() {
               </View>
             </View>
 
+            {/* Password Input */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
               <View style={styles.inputContainer}>
                 <MaterialCommunityIcons name="lock" size={20} color="#6b7280" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter password"
+                  placeholder="Password"
+                  placeholderTextColor="#9ca3af"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
@@ -87,19 +91,22 @@ export default function LoginScreen() {
               </View>
             </View>
 
+            {/* Login Button */}
             <TouchableOpacity 
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
               disabled={loading}
+              activeOpacity={0.8}
             >
               <Text style={styles.loginButtonText}>
-                {loading ? 'Loading...' : 'Login'}
+                {loading ? 'Logging in...' : 'Login'}
               </Text>
             </TouchableOpacity>
 
+            {/* Dev Info - Compact */}
             <View style={styles.devInfo}>
-              <MaterialCommunityIcons name="information" size={16} color="#6b7280" />
-              <Text style={styles.devInfoText}>Dev Mode: admin / admin</Text>
+              <MaterialCommunityIcons name="shield-key" size={14} color="#f59e0b" />
+              <Text style={styles.devInfoText}>admin / admin</Text>
             </View>
           </View>
         </View>
@@ -121,83 +128,101 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  logoContainer: {
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 48,
+    justifyContent: 'center',
+    marginBottom: 32,
+    gap: 12,
+  },
+  iconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   appTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginTop: 16,
-  },
-  appSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginTop: 4,
-  },
-  formContainer: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  welcomeText: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#111827',
-    marginBottom: 4,
   },
-  subtitleText: {
-    fontSize: 14,
-    color: '#6b7280',
+  formContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 28,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  welcomeText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#111827',
     marginBottom: 24,
   },
   inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
+    marginBottom: 16,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: '#e5e7eb',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    height: 52,
   },
   inputIcon: {
-    marginRight: 8,
+    marginRight: 12,
   },
   input: {
     flex: 1,
-    paddingVertical: 12,
     fontSize: 16,
     color: '#111827',
   },
   eyeIcon: {
-    padding: 4,
+    padding: 8,
   },
   loginButton: {
     backgroundColor: '#2563eb',
-    borderRadius: 8,
-    paddingVertical: 14,
+    borderRadius: 12,
+    height: 52,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 8,
-    shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   loginButtonDisabled: {
     backgroundColor: '#93c5fd',
@@ -205,21 +230,19 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: '#ffffff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   devInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 20,
-    padding: 12,
-    backgroundColor: '#fef3c7',
-    borderRadius: 8,
-    gap: 8,
+    gap: 6,
   },
   devInfoText: {
     fontSize: 12,
-    color: '#92400e',
+    color: '#6b7280',
     fontWeight: '500',
   },
 });

@@ -32,6 +32,32 @@ export default function TabsLayout() {
         tabBarActiveTintColor: '#2563eb',
         tabBarInactiveTintColor: '#6b7280',
         headerShown: true,
+        // PERBAIKAN: Konfigurasi header agar konten mepet
+        headerStyle: {
+          backgroundColor: '#ffffff',
+          elevation: 0,
+          shadowOpacity: 0,
+          borderBottomWidth: 1,
+          borderBottomColor: '#e5e7eb',
+        },
+        headerTitleStyle: {
+          fontSize: 18,
+          fontWeight: 'bold',
+          color: '#111827',
+        },
+        headerTitleAlign: 'left',
+        headerLeftContainerStyle: {
+          paddingLeft: 16,
+        },
+        headerRightContainerStyle: {
+          paddingRight: 0,
+        },
+        // PENTING: Hilangkan safe area default dari header
+        headerSafeAreaInsets: { top: 0 },
+        // PENTING: Set background untuk content area
+        contentStyle: {
+          backgroundColor: '#f3f4f6',
+        },
         headerRight: () => {
           // Only show on Dashboard screen
           if (route.name === 'index') {

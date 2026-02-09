@@ -1,8 +1,12 @@
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Modal, Animated, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Modal, Animated, Pressable, Dimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSession } from '../../contexts/AuthContext';
 import { useState, useEffect, useRef } from 'react';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CONTAINER_PADDING = 16;
+const CARD_GAP = 12;
+const CARD_WIDTH = (SCREEN_WIDTH - CONTAINER_PADDING * 2 - CARD_GAP) / 2;
 
 export default function Dashboard() {
   const { session } = useSession();
@@ -19,6 +23,8 @@ export default function Dashboard() {
     total_stock: 0, // TODO: Sum from products table
     low_stock: 0, // TODO: Count where stock <= min_stock
     out_of_stock: 0, // TODO: Count where stock = 0
+    total_in: 0, // TODO: Sum ALL from stock_logs where type='IN'
+    total_out: 0, // TODO: Sum ALL from stock_logs where type='OUT'
     stock_in_today: 0, // TODO: Sum from stock_logs where type='IN' AND date=today
     stock_out_today: 0, // TODO: Sum from stock_logs where type='OUT' AND date=today
   });
@@ -148,14 +154,26 @@ export default function Dashboard() {
     },
     { 
       icon: 'package-down', 
-      label: 'Masuk Hari Ini', 
+      label: 'IN Hari Ini', 
       value: metadata.stock_in_today.toString(), 
-      color: '#8b5cf6' 
+      color: '#06b6d4' 
     },
     { 
       icon: 'package-up', 
-      label: 'Keluar Hari Ini', 
+      label: 'OUT Hari Ini', 
       value: metadata.stock_out_today.toString(), 
+      color: '#f43f5e' 
+    },
+    { 
+      icon: 'archive-arrow-down', 
+      label: 'Total IN', 
+      value: metadata.total_in.toString(), 
+      color: '#8b5cf6' 
+    },
+    { 
+      icon: 'archive-arrow-up', 
+      label: 'Total OUT', 
+      value: metadata.total_out.toString(), 
       color: '#ec4899' 
     },
   ];
@@ -166,9 +184,10 @@ export default function Dashboard() {
   });
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+    <View style={styles.container}>
       <ScrollView 
-        style={styles.container}
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -227,10 +246,16 @@ export default function Dashboard() {
           </View>
         </Pressable>
 
-        {/* Stats Grid - Horizontal Compact Layout */}
+        {/* Stats Grid - 2 KOLOM LAYOUT */}
         <View style={styles.statsContainer}>
           {stats.map((stat, index) => (
-            <View key={index} style={styles.statCard}>
+            <View 
+              key={index} 
+              style={[
+                styles.statCard,
+                { marginRight: index % 2 === 0 ? CARD_GAP : 0 }
+              ]}
+            >
               <View style={[styles.iconContainer, { backgroundColor: `${stat.color}15` }]}>
                 <MaterialCommunityIcons name={stat.icon} size={24} color={stat.color} />
               </View>
@@ -241,9 +266,6 @@ export default function Dashboard() {
             </View>
           ))}
         </View>
-
-        {/* Spacer for bottom navigation */}
-        <View style={{ height: 20 }} />
       </ScrollView>
 
       {/* Recent Activity Modal */}
@@ -309,22 +331,26 @@ export default function Dashboard() {
           </Pressable>
         </Pressable>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
-  container: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 16,
+    paddingBottom: 20,
   },
   welcomeCard: {
     backgroundColor: '#ffffff',
     marginHorizontal: 16,
-    marginTop: 16,
+    marginTop: 0,
     marginBottom: 16,
     borderRadius: 16,
     padding: 16,
@@ -394,15 +420,18 @@ const styles = StyleSheet.create({
     marginVertical: 6,
   },
   statsContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: CONTAINER_PADDING,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
   },
   statCard: {
+    width: CARD_WIDTH,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 14,
-    marginBottom: 12,
+    marginBottom: CARD_GAP,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
