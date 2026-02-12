@@ -1,20 +1,29 @@
-import { supabase } from '../lib/supabase.js';
+import { supabase } from '../lib/supabase';
 
-/**
- * Product Service
- * Handle all product-related database operations
- */
-export const productService = {
+const productService = {
   /**
    * Get all products
-   * @param {boolean} activeOnly - Filter only active products
-   * @returns {Promise<Array>}
+   * @param {boolean} activeOnly - Filter active products only
    */
   async getAll(activeOnly = true) {
     try {
       let query = supabase
         .from('products')
-        .select('*')
+        .select(`
+          id,
+          sku,
+          nama_produk,
+          stock,
+          min_stock,
+          harga_modal_cny,
+          harga_modal_rp,
+          harga_jual_rp,
+          is_active,
+          created_at,
+          updated_at,
+          created_by,
+          updated_by
+        `)
         .order('created_at', { ascending: false });
 
       if (activeOnly) {
@@ -27,35 +36,47 @@ export const productService = {
       return data || [];
     } catch (error) {
       console.error('Get all products error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat produk');
     }
   },
 
   /**
    * Get product by ID
-   * @param {string} id 
-   * @returns {Promise<object | null>}
+   * @param {string} productId - Product UUID
    */
-  async getById(id) {
+  async getById(productId) {
     try {
       const { data, error } = await supabase
         .from('products')
-        .select('*')
-        .eq('id', id)
+        .select(`
+          id,
+          sku,
+          nama_produk,
+          stock,
+          min_stock,
+          harga_modal_cny,
+          harga_modal_rp,
+          harga_jual_rp,
+          is_active,
+          created_at,
+          updated_at,
+          created_by,
+          updated_by
+        `)
+        .eq('id', productId)
         .single();
 
       if (error) throw error;
       return data;
     } catch (error) {
       console.error('Get product by ID error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat detail produk');
     }
   },
 
   /**
    * Get product by SKU
-   * @param {string} sku 
-   * @returns {Promise<object | null>}
+   * @param {string} sku - Product SKU
    */
   async getBySku(sku) {
     try {
@@ -75,29 +96,27 @@ export const productService = {
 
   /**
    * Search products by SKU or name
-   * @param {string} keyword 
-   * @returns {Promise<Array>}
+   * @param {string} searchTerm - Search term for SKU or product name
    */
-  async search(keyword) {
+  async search(searchTerm) {
     try {
       const { data, error } = await supabase
         .from('products')
         .select('*')
-        .or(`sku.ilike.%${keyword}%,nama_produk.ilike.%${keyword}%`)
         .eq('is_active', true)
+        .or(`sku.ilike.%${searchTerm}%,nama_produk.ilike.%${searchTerm}%`)
         .order('nama_produk', { ascending: true });
 
       if (error) throw error;
       return data || [];
     } catch (error) {
       console.error('Search products error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal mencari produk');
     }
   },
 
   /**
    * Get low stock products
-   * @returns {Promise<Array>}
    */
   async getLowStock() {
     try {
@@ -108,17 +127,16 @@ export const productService = {
 
       if (error) throw error;
 
-      // Filter manually: stock <= min_stock
-      return (data || []).filter(p => p.stock <= p.min_stock);
+      // Filter manually: stock > 0 AND stock <= min_stock
+      return (data || []).filter(p => p.stock > 0 && p.stock <= p.min_stock);
     } catch (error) {
       console.error('Get low stock products error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat produk stok menipis');
     }
   },
 
   /**
    * Get out of stock products
-   * @returns {Promise<Array>}
    */
   async getOutOfStock() {
     try {
@@ -133,20 +151,45 @@ export const productService = {
       return data || [];
     } catch (error) {
       console.error('Get out of stock products error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat produk habis');
     }
   },
 
   /**
    * Create new product
-   * @param {object} product - Product data
-   * @returns {Promise<object>}
+   * @param {object} productData - Product data
    */
-  async create(product) {
+  async create(productData) {
     try {
+      // Validate required fields
+      if (!productData.sku || !productData.nama_produk) {
+        throw new Error('SKU dan Nama Produk harus diisi');
+      }
+
+      // Check if SKU already exists
+      const { data: existing } = await supabase
+        .from('products')
+        .select('id')
+        .eq('sku', productData.sku)
+        .single();
+
+      if (existing) {
+        throw new Error('SKU sudah digunakan');
+      }
+
       const { data, error } = await supabase
         .from('products')
-        .insert(product)
+        .insert({
+          sku: productData.sku,
+          nama_produk: productData.nama_produk,
+          stock: productData.stock || 0,
+          min_stock: productData.min_stock || 5,
+          harga_modal_cny: productData.harga_modal_cny || 0,
+          harga_modal_rp: productData.harga_modal_rp || 0,
+          harga_jual_rp: productData.harga_jual_rp || 0,
+          is_active: true,
+          created_by: productData.created_by,
+        })
         .select()
         .single();
 
@@ -154,22 +197,45 @@ export const productService = {
       return data;
     } catch (error) {
       console.error('Create product error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal menambahkan produk');
     }
   },
 
   /**
    * Update product
-   * @param {string} id 
-   * @param {object} updates - Fields to update
-   * @returns {Promise<object>}
+   * @param {string} productId - Product UUID
+   * @param {object} productData - Updated product data
    */
-  async update(id, updates) {
+  async update(productId, productData) {
     try {
+      // If updating SKU, check if new SKU already exists
+      if (productData.sku) {
+        const { data: existing } = await supabase
+          .from('products')
+          .select('id')
+          .eq('sku', productData.sku)
+          .neq('id', productId)
+          .single();
+
+        if (existing) {
+          throw new Error('SKU sudah digunakan oleh produk lain');
+        }
+      }
+
+      const updateData = {
+        ...productData,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Remove fields that shouldn't be updated directly
+      delete updateData.id;
+      delete updateData.created_at;
+      delete updateData.stock; // Stock should only be updated via stock_logs
+
       const { data, error } = await supabase
         .from('products')
-        .update(updates)
-        .eq('id', id)
+        .update(updateData)
+        .eq('id', productId)
         .select()
         .single();
 
@@ -177,45 +243,65 @@ export const productService = {
       return data;
     } catch (error) {
       console.error('Update product error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal mengupdate produk');
     }
   },
 
   /**
    * Soft delete product (set is_active to false)
-   * @param {string} id 
-   * @returns {Promise<void>}
+   * @param {string} productId - Product UUID
    */
-  async softDelete(id) {
+  async softDelete(productId) {
     try {
       const { error } = await supabase
         .from('products')
         .update({ is_active: false })
-        .eq('id', id);
+        .eq('id', productId);
 
       if (error) throw error;
+      return true;
     } catch (error) {
       console.error('Soft delete product error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal menghapus produk');
     }
   },
 
   /**
-   * Hard delete product
-   * @param {string} id 
-   * @returns {Promise<void>}
+   * Restore soft-deleted product
+   * @param {string} productId - Product UUID
    */
-  async delete(id) {
+  async restore(productId) {
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ is_active: true })
+        .eq('id', productId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Restore product error:', error);
+      throw new Error(error.message || 'Gagal mengembalikan produk');
+    }
+  },
+
+  /**
+   * Hard delete product (permanent deletion)
+   * Warning: This will cascade delete stock logs
+   * @param {string} productId - Product UUID
+   */
+  async delete(productId) {
     try {
       const { error } = await supabase
         .from('products')
         .delete()
-        .eq('id', id);
+        .eq('id', productId);
 
       if (error) throw error;
+      return true;
     } catch (error) {
-      console.error('Delete product error:', error);
-      throw error;
+      console.error('Hard delete product error:', error);
+      throw new Error(error.message || 'Gagal menghapus produk secara permanen');
     }
   },
 
@@ -240,7 +326,77 @@ export const productService = {
       return { total, lowStock, outOfStock, healthy };
     } catch (error) {
       console.error('Get stock stats error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat statistik stok');
+    }
+  },
+
+  /**
+   * Get products with stock status summary
+   */
+  async getStockStatusSummary() {
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('stock, min_stock')
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      const summary = {
+        total_products: data.length,
+        low_stock_count: 0,
+        out_of_stock_count: 0,
+        safe_stock_count: 0,
+      };
+
+      data.forEach(product => {
+        if (product.stock === 0) {
+          summary.out_of_stock_count += 1;
+        } else if (product.stock <= product.min_stock) {
+          summary.low_stock_count += 1;
+        } else {
+          summary.safe_stock_count += 1;
+        }
+      });
+
+      return summary;
+    } catch (error) {
+      console.error('Get stock status summary error:', error);
+      throw new Error(error.message || 'Gagal memuat ringkasan status stok');
+    }
+  },
+
+  /**
+   * Calculate total stock value
+   */
+  async getStockValue() {
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('stock, harga_modal_rp, harga_jual_rp')
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      const value = {
+        total_modal: 0,
+        total_harga_jual: 0,
+        potential_profit: 0,
+      };
+
+      data.forEach(product => {
+        const modal = product.stock * (parseFloat(product.harga_modal_rp) || 0);
+        const jual = product.stock * (parseFloat(product.harga_jual_rp) || 0);
+        
+        value.total_modal += modal;
+        value.total_harga_jual += jual;
+        value.potential_profit += (jual - modal);
+      });
+
+      return value;
+    } catch (error) {
+      console.error('Get stock value error:', error);
+      throw new Error(error.message || 'Gagal menghitung nilai stok');
     }
   },
 };

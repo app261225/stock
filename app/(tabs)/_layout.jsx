@@ -15,15 +15,15 @@ export default function TabsLayout() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const groupedLogs = useMemo(() => {
-    let filtered = recentLogs;
+    // Ensure recentLogs is always an array
+    let filtered = Array.isArray(recentLogs) ? recentLogs : [];
     
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(item => 
         item.product?.nama_produk?.toLowerCase().includes(query) ||
-        item.user?.full_name?.toLowerCase().includes(query) ||
-        item.user?.username?.toLowerCase().includes(query)
+        item.user?.name?.toLowerCase().includes(query)
       );
     }
 
@@ -116,9 +116,11 @@ export default function TabsLayout() {
                   setRecentLoading(true);
                   setSearchQuery('');
                   try {
-                    const logs = await stockLogService.getAll(100);
-                    setRecentLogs(logs || []);
+                    const result = await stockLogService.getRecent(100);
+                    // getRecent returns array directly, not object with logs property
+                    setRecentLogs(Array.isArray(result) ? result : []);
                   } catch (e) {
+                    console.error('Load recent logs error:', e);
                     setRecentLogs([]);
                   } finally {
                     setRecentLoading(false);
@@ -284,7 +286,7 @@ export default function TabsLayout() {
                           <View style={{ flex: 1, marginLeft: 12 }}>
                             <Text style={{ fontWeight: '600', color: '#111827' }}>{log.product?.nama_produk || 'Unknown Product'}</Text>
                             <Text style={{ color: '#6b7280', marginTop: 2, fontSize: 13 }}>{log.type === 'IN' ? 'Stock IN' : 'Stock OUT'} • {log.quantity} unit</Text>
-                            <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 4 }}>oleh {log.user?.full_name || log.user?.username || 'Unknown'}</Text>
+                            <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 4 }}>oleh {log.user?.name || 'Unknown'}</Text>
                           </View>
                           <Text style={{ color: '#9ca3af', fontSize: 12 }}>{new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
                         </View>

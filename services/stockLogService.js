@@ -1,37 +1,140 @@
-import { supabase } from '../lib/supabase.js';
+import { supabase } from '../lib/supabase';
 
-/**
- * Stock Log Service
- * Handle all stock transaction operations
- */
-export const stockLogService = {
+const stockLogService = {
   /**
    * Get all stock logs with product and user details
    * @param {number} limit 
    * @returns {Promise<Array>}
    */
-  async getAll(limit = 50) {
+  async getAll(limit = 50, page = 1, filters = {}) {
     try {
-      const { data, error } = await supabase
-        .from('stock_logs')
-        .select(`
-          *,
-          product:products(sku, nama_produk),
-          user:users(full_name, username)
-        `)
+      // Support both simple limit mode and pagination mode
+      if (typeof page === 'object') {
+        // Called with (limit, filters) - no pagination
+        filters = page;
+        const { data, error } = await supabase
+          .from('stock_logs')
+          .select(`
+            id,
+            type,
+            quantity,
+            stock_before,
+            stock_after,
+            notes,
+            created_at,
+            products:product_id (
+              id,
+              sku,
+              nama_produk
+            ),
+            users:user_id (
+              id,
+              full_name,
+              username
+            )
+          `)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+
+        if (error) throw error;
+
+        return data.map(log => ({
+          id: log.id,
+          type: log.type,
+          quantity: log.quantity,
+          stock_before: log.stock_before,
+          stock_after: log.stock_after,
+          notes: log.notes,
+          created_at: log.created_at,
+          product: {
+            id: log.products?.id,
+            sku: log.products?.sku,
+            nama_produk: log.products?.nama_produk,
+          },
+          user: {
+            id: log.users?.id,
+            name: log.users?.full_name || log.users?.username,
+          },
+        }));
+      }
+
+      // Pagination mode with filters
+      const offset = (page - 1) * limit;
+      let query = supabase.from('stock_logs').select(`
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          products:product_id (
+            id,
+            sku,
+            nama_produk
+          ),
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
+        `, { count: 'exact' });
+
+      // Apply filters
+      if (filters.type) {
+        query = query.eq('type', filters.type);
+      }
+      if (filters.userId) {
+        query = query.eq('user_id', filters.userId);
+      }
+      if (filters.startDate) {
+        query = query.gte('created_at', filters.startDate);
+      }
+      if (filters.endDate) {
+        query = query.lte('created_at', filters.endDate);
+      }
+
+      const { data, error, count } = await query
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .range(offset, offset + limit - 1);
 
       if (error) throw error;
-      return data || [];
+
+      // Transform data
+      const logs = data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        product: {
+          id: log.products?.id,
+          sku: log.products?.sku,
+          nama_produk: log.products?.nama_produk,
+        },
+        user: {
+          id: log.users?.id,
+          name: log.users?.full_name || log.users?.username,
+        },
+      }));
+
+      return {
+        logs,
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit),
+      };
     } catch (error) {
       console.error('Get all stock logs error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat riwayat stock');
     }
   },
 
   /**
-   * Get stock logs by product ID
+   * Get stock logs by product ID (simple - no pagination)
    * @param {string} productId 
    * @param {number} limit 
    * @returns {Promise<Array>}
@@ -41,19 +144,119 @@ export const stockLogService = {
       const { data, error } = await supabase
         .from('stock_logs')
         .select(`
-          *,
-          product:products(sku, nama_produk),
-          user:users(full_name, username)
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          products:product_id (
+            id,
+            sku,
+            nama_produk
+          ),
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
         `)
         .eq('product_id', productId)
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) throw error;
-      return data || [];
+
+      return data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        product: {
+          id: log.products?.id,
+          sku: log.products?.sku,
+          nama_produk: log.products?.nama_produk,
+        },
+        user: {
+          id: log.users?.id,
+          name: log.users?.full_name || log.users?.username,
+        },
+      }));
     } catch (error) {
       console.error('Get stock logs by product error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat riwayat produk');
+    }
+  },
+
+  /**
+   * Get stock logs by product with pagination (for detail modal)
+   * @param {string} productId 
+   * @param {number} page - Page number (1-indexed)
+   * @param {number} limit - Items per page
+   * @returns {Promise<{logs: Array, total: number, page: number, limit: number, totalPages: number}>}
+   */
+  async getByProduct(productId, page = 1, limit = 10) {
+    try {
+      const offset = (page - 1) * limit;
+
+      // Get total count
+      const { count, error: countError } = await supabase
+        .from('stock_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('product_id', productId);
+
+      if (countError) throw countError;
+
+      // Get paginated data with user info
+      const { data, error } = await supabase
+        .from('stock_logs')
+        .select(`
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
+        `)
+        .eq('product_id', productId)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (error) throw error;
+
+      // Transform data to match expected format
+      const logs = data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        user_name: log.users?.full_name || log.users?.username || 'Unknown',
+        user_id: log.users?.id,
+      }));
+
+      return {
+        logs,
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit),
+      };
+    } catch (error) {
+      console.error('Get stock logs by product error:', error);
+      throw new Error(error.message || 'Gagal memuat riwayat stock');
     }
   },
 
@@ -69,18 +272,50 @@ export const stockLogService = {
       const { data, error } = await supabase
         .from('stock_logs')
         .select(`
-          *,
-          product:products(sku, nama_produk),
-          user:users(full_name, username)
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          products:product_id (
+            id,
+            sku,
+            nama_produk
+          ),
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
         `)
         .gte('created_at', today.toISOString())
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data || [];
+
+      return data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        product: {
+          id: log.products?.id,
+          sku: log.products?.sku,
+          nama_produk: log.products?.nama_produk,
+        },
+        user: {
+          id: log.users?.id,
+          name: log.users?.full_name || log.users?.username,
+        },
+      }));
     } catch (error) {
       console.error('Get today stock logs error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat riwayat hari ini');
     }
   },
 
@@ -95,19 +330,51 @@ export const stockLogService = {
       const { data, error } = await supabase
         .from('stock_logs')
         .select(`
-          *,
-          product:products(sku, nama_produk),
-          user:users(full_name, username)
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          products:product_id (
+            id,
+            sku,
+            nama_produk
+          ),
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
         `)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data || [];
+
+      return data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        product: {
+          id: log.products?.id,
+          sku: log.products?.sku,
+          nama_produk: log.products?.nama_produk,
+        },
+        user: {
+          id: log.users?.id,
+          name: log.users?.full_name || log.users?.username,
+        },
+      }));
     } catch (error) {
       console.error('Get stock logs by date range error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat riwayat tanggal');
     }
   },
 
@@ -122,19 +389,107 @@ export const stockLogService = {
       const { data, error } = await supabase
         .from('stock_logs')
         .select(`
-          *,
-          product:products(sku, nama_produk),
-          user:users(full_name, username)
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          products:product_id (
+            id,
+            sku,
+            nama_produk
+          ),
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
         `)
         .eq('type', type)
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) throw error;
-      return data || [];
+
+      return data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        product: {
+          id: log.products?.id,
+          sku: log.products?.sku,
+          nama_produk: log.products?.nama_produk,
+        },
+        user: {
+          id: log.users?.id,
+          name: log.users?.full_name || log.users?.username,
+        },
+      }));
     } catch (error) {
       console.error('Get stock logs by type error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat riwayat tipe');
+    }
+  },
+
+  /**
+   * Get recent stock logs (last N entries)
+   * @param {number} limit - Number of recent logs to fetch
+   */
+  async getRecent(limit = 10) {
+    try {
+      const { data, error } = await supabase
+        .from('stock_logs')
+        .select(`
+          id,
+          type,
+          quantity,
+          stock_before,
+          stock_after,
+          notes,
+          created_at,
+          products:product_id (
+            id,
+            sku,
+            nama_produk
+          ),
+          users:user_id (
+            id,
+            full_name,
+            username
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      return data.map(log => ({
+        id: log.id,
+        type: log.type,
+        quantity: log.quantity,
+        stock_before: log.stock_before,
+        stock_after: log.stock_after,
+        notes: log.notes,
+        created_at: log.created_at,
+        product: {
+          id: log.products?.id,
+          sku: log.products?.sku,
+          nama_produk: log.products?.nama_produk,
+        },
+        user: {
+          id: log.users?.id,
+          name: log.users?.full_name || log.users?.username,
+        },
+      }));
+    } catch (error) {
+      console.error('Get recent logs error:', error);
+      throw new Error(error.message || 'Gagal memuat riwayat terbaru');
     }
   },
 
@@ -147,9 +502,9 @@ export const stockLogService = {
    * @param {string} notes 
    * @returns {Promise<object>}
    */
-  async recordStockIn(productId, userId, quantity, notes = null) {
+  async recordStockIn(productId, userId, quantity, notes = '') {
     try {
-      // Get current product stock
+      // Get current product stock for validation
       const { data: product, error: productError } = await supabase
         .from('products')
         .select('stock')
@@ -167,10 +522,10 @@ export const stockLogService = {
           product_id: productId,
           user_id: userId,
           type: 'IN',
-          quantity,
+          quantity: quantity,
           stock_before: stockBefore,
           stock_after: stockAfter,
-          notes,
+          notes: notes || null,
         })
         .select()
         .single();
@@ -178,8 +533,8 @@ export const stockLogService = {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Record stock IN error:', error);
-      throw error;
+      console.error('Stock IN error:', error);
+      throw new Error(error.message || 'Gagal mencatat stock IN');
     }
   },
 
@@ -192,12 +547,12 @@ export const stockLogService = {
    * @param {string} notes 
    * @returns {Promise<object>}
    */
-  async recordStockOut(productId, userId, quantity, notes = null) {
+  async recordStockOut(productId, userId, quantity, notes = '') {
     try {
       // Get current product stock
       const { data: product, error: productError } = await supabase
         .from('products')
-        .select('stock')
+        .select('stock, nama_produk')
         .eq('id', productId)
         .single();
 
@@ -220,10 +575,10 @@ export const stockLogService = {
           product_id: productId,
           user_id: userId,
           type: 'OUT',
-          quantity,
+          quantity: quantity,
           stock_before: stockBefore,
           stock_after: stockAfter,
-          notes,
+          notes: notes || null,
         })
         .select()
         .single();
@@ -231,54 +586,86 @@ export const stockLogService = {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Record stock OUT error:', error);
-      throw error;
+      console.error('Stock OUT error:', error);
+      throw new Error(error.message || 'Gagal mencatat stock OUT');
     }
   },
 
   /**
-   * Get today's statistics
+   * Get today's stock movements summary
+   */
+  async getTodaySummary() {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const { data, error } = await supabase
+        .from('stock_logs')
+        .select('type, quantity')
+        .gte('created_at', today.toISOString());
+
+      if (error) throw error;
+
+      const summary = {
+        total_in: 0,
+        total_out: 0,
+        count_in: 0,
+        count_out: 0,
+      };
+
+      data.forEach(log => {
+        if (log.type === 'IN') {
+          summary.total_in += log.quantity;
+          summary.count_in += 1;
+        } else if (log.type === 'OUT') {
+          summary.total_out += log.quantity;
+          summary.count_out += 1;
+        }
+      });
+
+      return summary;
+    } catch (error) {
+      console.error('Get today summary error:', error);
+      throw new Error(error.message || 'Gagal memuat ringkasan hari ini');
+    }
+  },
+
+  /**
+   * Get today's statistics (alias for getTodaySummary)
    * @returns {Promise<{totalIn: number, totalOut: number, transactionCount: number}>}
    */
   async getTodayStats() {
     try {
-      const todayLogs = await this.getToday();
-
-      const totalIn = todayLogs
-        .filter(log => log.type === 'IN')
-        .reduce((sum, log) => sum + log.quantity, 0);
-
-      const totalOut = todayLogs
-        .filter(log => log.type === 'OUT')
-        .reduce((sum, log) => sum + log.quantity, 0);
-
+      const summary = await this.getTodaySummary();
+      
       return {
-        totalIn,
-        totalOut,
-        transactionCount: todayLogs.length,
+        totalIn: summary.total_in,
+        totalOut: summary.total_out,
+        transactionCount: summary.count_in + summary.count_out,
       };
     } catch (error) {
       console.error('Get today stats error:', error);
-      throw error;
+      throw new Error(error.message || 'Gagal memuat statistik hari ini');
     }
   },
 
   /**
-   * Delete stock log (admin only - will not revert stock changes)
-   * @param {string} id 
-   * @returns {Promise<void>}
+   * Delete a stock log (admin only - use with caution)
+   * Note: This won't automatically adjust product stock
+   * @param {string} logId - Log UUID
    */
-  async delete(id) {
+  async delete(logId) {
     try {
       const { error } = await supabase
         .from('stock_logs')
         .delete()
-        .eq('id', id);
+        .eq('id', logId);
 
       if (error) throw error;
+      return true;
     } catch (error) {
-      console.error('Delete stock log error:', error);
-      throw error;
+      console.error('Delete log error:', error);
+      throw new Error(error.message || 'Gagal menghapus log');
     }
   },
 };
