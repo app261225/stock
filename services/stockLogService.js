@@ -650,6 +650,38 @@ const stockLogService = {
   },
 
   /**
+   * Get all-time total stock movements
+   * @returns {Promise<{totalIn: number, totalOut: number}>}
+   */
+  async getAllTimeStats() {
+    try {
+      const { data, error } = await supabase
+        .from('stock_logs')
+        .select('type, quantity');
+
+      if (error) throw error;
+
+      const summary = {
+        totalIn: 0,
+        totalOut: 0,
+      };
+
+      data.forEach(log => {
+        if (log.type === 'IN') {
+          summary.totalIn += log.quantity;
+        } else if (log.type === 'OUT') {
+          summary.totalOut += log.quantity;
+        }
+      });
+
+      return summary;
+    } catch (error) {
+      console.error('Get all-time stats error:', error);
+      throw new Error(error.message || 'Gagal memuat statistik total');
+    }
+  },
+
+  /**
    * Delete a stock log (admin only - use with caution)
    * Note: This won't automatically adjust product stock
    * @param {string} logId - Log UUID

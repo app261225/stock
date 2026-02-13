@@ -1,6 +1,6 @@
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl, Modal, KeyboardAvoidingView, ScrollView, Platform, Keyboard, Alert } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSession } from '../../contexts/AuthContext';
@@ -9,6 +9,7 @@ import stockLogService from '../../services/stockLogService';
 
 export default function ProductsScreen() {
   const { session } = useSession();
+  const route = useRoute();
   const [products, setProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,6 +49,16 @@ export default function ProductsScreen() {
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [totalLogs, setTotalLogs] = useState(0);
   
+  // Edit product modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    nama_produk: '',
+    harga_modal_rp: '',
+    harga_jual_rp: '',
+    min_stock: '',
+  });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  
   const LOGS_PER_PAGE = 10;
   
   const CACHE_KEY = 'products_cache';
@@ -70,6 +81,13 @@ export default function ProductsScreen() {
       keyboardDidHideListener.remove();
     };
   }, []);
+
+  // Apply filter from route params when navigating from dashboard
+  useEffect(() => {
+    if (route.params?.filter) {
+      setFilter(route.params.filter);
+    }
+  }, [route.params?.filter]);
 
   useEffect(() => {
     applyFilter();
@@ -282,6 +300,77 @@ export default function ProductsScreen() {
     await loadStockLogs(product.id, 1);
   };
 
+  const handleEditProduct = () => {
+    if (!detailProduct) return;
+    setEditFormData({
+      nama_produk: detailProduct.nama_produk,
+      harga_modal_rp: detailProduct.harga_modal_rp.toString(),
+      harga_jual_rp: detailProduct.harga_jual_rp.toString(),
+      min_stock: detailProduct.min_stock.toString(),
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateProduct = async () => {
+    if (!detailProduct) return;
+    
+    const { nama_produk, harga_modal_rp, harga_jual_rp, min_stock } = editFormData;
+    
+    if (!nama_produk.trim() || !harga_modal_rp || !harga_jual_rp || !min_stock) {
+      Alert.alert('Error', 'Semua field harus diisi');
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      await productService.update(detailProduct.id, {
+        nama_produk: nama_produk.trim(),
+        harga_modal_rp: parseInt(harga_modal_rp, 10),
+        harga_jual_rp: parseInt(harga_jual_rp, 10),
+        min_stock: parseInt(min_stock, 10),
+      });
+
+      Alert.alert('Sukses', 'Produk berhasil diperbarui');
+      setShowEditModal(false);
+      await loadProducts();
+      
+      const updated = products.find(p => p.id === detailProduct.id);
+      if (updated) setDetailProduct(updated);
+    } catch (error) {
+      console.error('Update product error:', error);
+      Alert.alert('Error', error.message || 'Gagal memperbarui produk');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteProduct = () => {
+    if (!detailProduct) return;
+    
+    Alert.alert(
+      'Hapus Produk',
+      `Yakin ingin menghapus "${detailProduct.nama_produk}"? Tindakan ini tidak dapat dibatalkan.`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await productService.delete(detailProduct.id);
+              Alert.alert('Sukses', 'Produk berhasil dihapus');
+              setShowDetailModal(false);
+              await loadProducts();
+            } catch (error) {
+              console.error('Delete product error:', error);
+              Alert.alert('Error', error.message || 'Gagal menghapus produk');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const loadStockLogs = async (productId, page) => {
     try {
       setLogsLoading(true);
@@ -341,6 +430,10 @@ export default function ProductsScreen() {
     const profit = item.harga_jual_rp - item.harga_modal_rp;
     const profitPercent = ((profit / item.harga_modal_rp) * 100).toFixed(0);
     
+    const profitStyle = profit >= 0 
+      ? { color: '#16a34a', bgColor: '#f0fdf4', icon: 'trending-up' }
+      : { color: '#ef4444', bgColor: '#fef2f2', icon: 'trending-down' };
+    
     return (
       <View style={styles.productCardWrapper}>
         {/* Kolom 1: Product Info (Clickable) */}
@@ -360,13 +453,6 @@ export default function ProductsScreen() {
           {/* Product Name */}
           <Text style={styles.productName} numberOfLines={1}>{item.nama_produk}</Text>
 
-          {/* Stock Info */}
-          <View style={styles.stockInfoRow}>
-            <MaterialCommunityIcons name="cube-outline" size={13} color="#6b7280" />
-            <Text style={styles.stockLabel}>Stock</Text>
-            <Text style={styles.stockValue}>{item.stock}/{item.min_stock}</Text>
-          </View>
-
           {/* Price Info Grid - Compact 2 columns */}
           <View style={styles.priceGrid}>
             <View style={styles.priceCol}>
@@ -379,11 +465,18 @@ export default function ProductsScreen() {
             </View>
           </View>
 
-          {/* Profit Badge */}
-          <View style={styles.profitBadge}>
-            <MaterialCommunityIcons name="trending-up" size={12} color="#16a34a" />
-            <Text style={styles.profitAmount}>{formatCurrency(profit)}</Text>
-            <Text style={styles.profitPercent}>({profitPercent}%)</Text>
+          {/* Stock Info and Profit Badge - Inline */}
+          <View style={styles.stockProfitRow}>
+            <View style={styles.stockInfoRow}>
+              <MaterialCommunityIcons name="cube-outline" size={13} color="#6b7280" />
+              <Text style={styles.stockLabel}>Stock</Text>
+              <Text style={styles.stockValue}>{item.stock}/{item.min_stock}</Text>
+            </View>
+            <View style={[styles.profitBadge, { backgroundColor: profitStyle.bgColor }]}>
+              <MaterialCommunityIcons name={profitStyle.icon} size={12} color={profitStyle.color} />
+              <Text style={[styles.profitAmount, { color: profitStyle.color }]}>{formatCurrency(profit)}</Text>
+              <Text style={[styles.profitPercent, { color: profitStyle.color }]}>({profitPercent}%)</Text>
+            </View>
           </View>
         </TouchableOpacity>
 
@@ -810,44 +903,71 @@ export default function ProductsScreen() {
             {/* Product Info Card */}
             <View style={styles.detailContent}>
               <View style={styles.detailInfoCard}>
-                <Text style={styles.detailProductName}>{detailProduct?.nama_produk}</Text>
-                
-                <View style={styles.detailInfoGrid}>
-                  <View style={styles.detailInfoItem}>
-                    <Text style={styles.detailInfoLabel}>Stock Saat Ini</Text>
-                    <Text style={styles.detailInfoValue}>{detailProduct?.stock} unit</Text>
+                {/* Header Row: Nama + Actions */}
+                <View style={styles.detailNameRow}>
+                  <Text style={styles.detailProductName} numberOfLines={2}>{detailProduct?.nama_produk}</Text>
+                  <View style={styles.detailActionButtons}>
+                    <TouchableOpacity style={styles.detailActionBtn} onPress={handleEditProduct}>
+                      <MaterialCommunityIcons name="pencil" size={18} color="#3b82f6" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.detailActionBtn} onPress={handleDeleteProduct}>
+                      <MaterialCommunityIcons name="trash-can-outline" size={18} color="#ef4444" />
+                    </TouchableOpacity>
                   </View>
-                  <View style={styles.detailInfoItem}>
-                    <Text style={styles.detailInfoLabel}>Min Stock</Text>
-                    <Text style={styles.detailInfoValue}>{detailProduct?.min_stock} unit</Text>
+                </View>
+                
+                {/* Stock Row */}
+                <View style={styles.detailCompactRow}>
+                  <View style={styles.detailCompactItem}>
+                    <MaterialCommunityIcons name="cube-outline" size={14} color="#6b7280" />
+                    <Text style={styles.detailCompactLabel}>Stock:</Text>
+                    <Text style={styles.detailCompactValue}>{detailProduct?.stock}</Text>
+                  </View>
+                  <View style={styles.detailCompactItem}>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#6b7280" />
+                    <Text style={styles.detailCompactLabel}>Min:</Text>
+                    <Text style={styles.detailCompactValue}>{detailProduct?.min_stock}</Text>
                   </View>
                 </View>
 
-                <View style={styles.detailInfoGrid}>
-                  <View style={styles.detailInfoItem}>
-                    <Text style={styles.detailInfoLabel}>Harga Modal</Text>
-                    <Text style={styles.detailInfoValue}>{formatCurrency(detailProduct?.harga_modal_rp || 0)}</Text>
+                {/* Price Grid - Compact */}
+                <View style={styles.detailPriceGrid}>
+                  <View style={styles.detailPriceItem}>
+                    <Text style={styles.detailPriceLabel}>Modal</Text>
+                    <Text style={styles.detailPriceValue}>{formatCurrency(detailProduct?.harga_modal_rp || 0)}</Text>
                   </View>
-                  <View style={styles.detailInfoItem}>
-                    <Text style={styles.detailInfoLabel}>Harga Jual</Text>
-                    <Text style={[styles.detailInfoValue, { color: '#16a34a' }]}>
+                  <View style={styles.detailPriceItem}>
+                    <Text style={styles.detailPriceLabel}>Jual</Text>
+                    <Text style={[styles.detailPriceValue, styles.detailPriceValueSell]}>
                       {formatCurrency(detailProduct?.harga_jual_rp || 0)}
                     </Text>
                   </View>
                 </View>
 
-                {detailProduct && (
-                  <View style={styles.detailProfitCard}>
-                    <MaterialCommunityIcons name="trending-up" size={16} color="#16a34a" />
-                    <Text style={styles.detailProfitLabel}>Profit per unit:</Text>
-                    <Text style={styles.detailProfitValue}>
-                      {formatCurrency((detailProduct.harga_jual_rp - detailProduct.harga_modal_rp))}
-                    </Text>
-                    <Text style={styles.detailProfitPercent}>
-                      ({(((detailProduct.harga_jual_rp - detailProduct.harga_modal_rp) / detailProduct.harga_modal_rp) * 100).toFixed(1)}%)
-                    </Text>
-                  </View>
-                )}
+                {/* Profit Badge */}
+                {detailProduct && (() => {
+                  const profit = detailProduct.harga_jual_rp - detailProduct.harga_modal_rp;
+                  const profitPercent = ((profit / detailProduct.harga_modal_rp) * 100).toFixed(1);
+                  const profitStyle = profit >= 0 
+                    ? { color: '#16a34a', bgColor: '#f0fdf4', borderColor: '#dcfce7', icon: 'trending-up' }
+                    : { color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fee2e2', icon: 'trending-down' };
+                  
+                  return (
+                    <View style={[styles.detailProfitCard, { 
+                      backgroundColor: profitStyle.bgColor,
+                      borderColor: profitStyle.borderColor 
+                    }]}>
+                      <MaterialCommunityIcons name={profitStyle.icon} size={14} color={profitStyle.color} />
+                      <Text style={[styles.detailProfitLabel, { color: profitStyle.color }]}>Profit:</Text>
+                      <Text style={[styles.detailProfitValue, { color: profitStyle.color }]}>
+                        {formatCurrency(profit)}
+                      </Text>
+                      <Text style={[styles.detailProfitPercent, { color: profitStyle.color }]}>
+                        ({profitPercent}%)
+                      </Text>
+                    </View>
+                  );
+                })()}
               </View>
 
               {/* Stock History */}
@@ -870,45 +990,55 @@ export default function ProductsScreen() {
                     keyExtractor={(item) => item.id.toString()}
                     contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8 }}
                     renderItem={({ item }) => (
-                      <View style={styles.logItemCard}>
-                        {/* Icon Badge */}
-                        <View style={[
-                          styles.logIconBadge,
-                          { backgroundColor: item.type === 'IN' ? '#dcfce7' : '#fee2e2' }
-                        ]}>
-                          <MaterialCommunityIcons 
-                            name={item.type === 'IN' ? 'package-down' : 'package-up'} 
-                            size={20} 
-                            color={item.type === 'IN' ? '#16a34a' : '#ef4444'} 
-                          />
+                      <View style={[
+                        styles.logItemCard,
+                        { borderLeftColor: item.type === 'IN' ? '#16a34a' : '#ef4444' }
+                      ]}>
+                        {/* Row 1: User & Time inline */}
+                        <View style={styles.logItemTopRow}>
+                          <View style={styles.logItemUserRow}>
+                            <MaterialCommunityIcons name="account" size={12} color="#9ca3af" />
+                            <Text style={styles.logItemUserName}>{item.user_name || 'Unknown'}</Text>
+                          </View>
+                          <Text style={styles.logItemTimeText}>
+                            {(() => {
+                              const date = new Date(item.created_at);
+                              const day = date.getDate();
+                              const month = date.toLocaleDateString('id-ID', { month: 'short' });
+                              const year = date.getFullYear();
+                              const time = date.toLocaleTimeString('id-ID', { 
+                                hour: '2-digit', 
+                                minute: '2-digit',
+                                hour12: false 
+                              });
+                              return `${day} ${month} ${year}, ${time}`;
+                            })()}
+                          </Text>
                         </View>
                         
-                        {/* Content */}
-                        <View style={styles.logContent}>
-                          {/* Header Row: Badge + Time */}
-                          <View style={styles.logTopRow}>
+                        {/* Row 2: Icon + Qty Badge + Notes inline */}
+                        <View style={styles.logItemBottomRow}>
+                          <View style={styles.logItemQtyRow}>
+                            <MaterialCommunityIcons
+                              name={item.type === 'IN' ? 'package-down' : 'package-up'}
+                              size={14}
+                              color={item.type === 'IN' ? '#16a34a' : '#ef4444'}
+                            />
                             <Text style={[
-                              styles.logTypeText,
-                              { color: item.type === 'IN' ? '#16a34a' : '#ef4444' }
+                              styles.logItemQtyBadge,
+                              { 
+                                backgroundColor: item.type === 'IN' ? '#dcfce7' : '#fee2e2',
+                                color: item.type === 'IN' ? '#16a34a' : '#ef4444' 
+                              }
                             ]}>
-                              {item.type === 'IN' ? 'Stock IN' : 'Stock OUT'} • {item.quantity} unit
+                              {item.type === 'IN' ? '+' : '-'}{item.quantity} unit
                             </Text>
                           </View>
-                          
-                          {/* Notes */}
                           {item.notes && (
-                            <Text style={styles.logNotes} numberOfLines={1}>{item.notes}</Text>
+                            <Text style={styles.logItemNotesText} numberOfLines={1}>
+                              {item.notes}
+                            </Text>
                           )}
-                          
-                          {/* Footer: User + Time */}
-                          <View style={styles.logFooterRow}>
-                            <Text style={styles.logUser}>
-                              oleh {item.user_name || 'Unknown'}
-                            </Text>
-                            <Text style={styles.logTime}>
-                              {new Date(item.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                            </Text>
-                          </View>
                         </View>
                       </View>
                     )}
@@ -936,6 +1066,151 @@ export default function ProductsScreen() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Edit Product Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.alertOverlay}
+        >
+          <TouchableOpacity 
+            style={styles.alertBackdrop} 
+            activeOpacity={1} 
+            onPress={() => setShowEditModal(false)}
+          />
+          <View style={styles.alertWrapper}>
+            <View style={styles.alertContainer}>
+              {/* Header */}
+              <View style={[styles.alertHeader, { backgroundColor: '#eff6ff' }]}>
+                <View style={[styles.alertIconContainer, { backgroundColor: '#3b82f6' }]}>
+                  <MaterialCommunityIcons name="pencil" size={20} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.alertTitle}>Edit Produk</Text>
+                  <Text style={styles.alertSubtitle}>{detailProduct?.sku}</Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.alertCloseButton}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <MaterialCommunityIcons name="close" size={18} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Form Content */}
+              <ScrollView style={styles.alertScrollContent}>
+                <View style={styles.alertContentScrollable}>
+                  {/* Nama Produk */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>Nama Produk</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="Nama produk"
+                      value={editFormData.nama_produk}
+                      onChangeText={(val) => setEditFormData({...editFormData, nama_produk: val})}
+                    />
+                  </View>
+
+                  {/* Harga Modal + Jual */}
+                  <View style={styles.formRow}>
+                    <View style={styles.formCol50}>
+                      <Text style={styles.formLabel}>Modal (Rp)</Text>
+                      <View style={styles.inputWithPrefix}>
+                        <Text style={styles.inputPrefix}>Rp</Text>
+                        <TextInput
+                          style={[styles.formInput, styles.inputPrefixed]}
+                          placeholder="0"
+                          value={editFormData.harga_modal_rp}
+                          onChangeText={(val) => setEditFormData({...editFormData, harga_modal_rp: val.replace(/[^0-9]/g, '')})}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.formCol50}>
+                      <Text style={styles.formLabel}>Jual (Rp)</Text>
+                      <View style={styles.inputWithPrefix}>
+                        <Text style={styles.inputPrefix}>Rp</Text>
+                        <TextInput
+                          style={[styles.formInput, styles.inputPrefixed]}
+                          placeholder="0"
+                          value={editFormData.harga_jual_rp}
+                          onChangeText={(val) => setEditFormData({...editFormData, harga_jual_rp: val.replace(/[^0-9]/g, '')})}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Min Stock */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>Min Stock</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="0"
+                      value={editFormData.min_stock}
+                      onChangeText={(val) => setEditFormData({...editFormData, min_stock: val.replace(/[^0-9]/g, '')})}
+                      keyboardType="numeric"
+                    />
+                  </View>
+
+                  {/* Profit Display */}
+                  {editFormData.harga_modal_rp && editFormData.harga_jual_rp && (
+                    <View style={styles.profitDisplay}>
+                      <MaterialCommunityIcons 
+                        name={parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? 'trending-up' : 'trending-down'} 
+                        size={16} 
+                        color={parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? '#16a34a' : '#ef4444'} 
+                      />
+                      <Text style={styles.profitDisplayLabel}>Profit:</Text>
+                      <Text style={[
+                        styles.profitDisplayValue,
+                        { color: parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? '#16a34a' : '#ef4444' }
+                      ]}>
+                        {formatCurrency(parseInt(editFormData.harga_jual_rp || 0) - parseInt(editFormData.harga_modal_rp || 0))}
+                      </Text>
+                      <Text style={[
+                        styles.profitDisplayPercent,
+                        { color: parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? '#16a34a' : '#ef4444' }
+                      ]}>
+                        ({(((parseInt(editFormData.harga_jual_rp || 0) - parseInt(editFormData.harga_modal_rp || 0)) / parseInt(editFormData.harga_modal_rp || 1)) * 100).toFixed(1)}%)
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
+
+              {/* Actions */}
+              <View style={styles.alertActions}>
+                <TouchableOpacity 
+                  style={styles.alertButtonCancel}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <Text style={styles.alertButtonCancelText}>Batal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.alertButtonConfirm, { backgroundColor: '#3b82f6' }]}
+                  onPress={handleUpdateProduct}
+                  disabled={editSubmitting}
+                >
+                  {editSubmitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="check" size={18} color="#fff" />
+                      <Text style={styles.alertButtonConfirmText}>Simpan</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -1054,41 +1329,41 @@ const styles = StyleSheet.create({
   productCardWrapper: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginBottom: 8,
-    borderRadius: 12,
+    marginHorizontal: 4,
+    marginBottom: 6,
+    borderRadius: 10,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
   productInfoSection: {
     flex: 1,
-    padding: 12,
-    gap: 8,
+    padding: 9,
+    gap: 6,
   },
   actionColumn: {
-    width: 64,
+    width: 56,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    gap: 6,
+    paddingVertical: 9,
     backgroundColor: '#f9fafb',
     borderLeftWidth: 1,
     borderLeftColor: '#e5e7eb',
   },
   actionBtnVertical: {
-    width: 52,
-    height: 52,
-    borderRadius: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 8,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 1,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
   actionBtnVerticalText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#6b7280',
   },
@@ -1106,26 +1381,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   skuText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: '#6b7280',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   statusPill: {
     paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
   statusLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   productName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 2,
+    marginBottom: 1,
+  },
+  stockProfitRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   stockInfoRow: {
     flexDirection: 'row',
@@ -1144,22 +1424,22 @@ const styles = StyleSheet.create({
   },
   priceGrid: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 5,
   },
   priceCol: {
     flex: 1,
     backgroundColor: '#f9fafb',
-    borderRadius: 6,
-    padding: 6,
+    borderRadius: 5,
+    padding: 5,
   },
   priceLabel: {
-    fontSize: 9,
-    color: '#6b7280',
-    fontWeight: '600',
-    marginBottom: 2,
+    fontSize: 8,
+    color: '#9ca3af',
+    fontWeight: '500',
+    marginBottom: 0,
   },
   priceValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#111827',
   },
@@ -1169,22 +1449,18 @@ const styles = StyleSheet.create({
   profitBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0fdf4',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 5,
     gap: 3,
-    alignSelf: 'flex-start',
   },
   profitAmount: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#16a34a',
   },
   profitPercent: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '600',
-    color: '#16a34a',
   },
   actionRow: {
     flexDirection: 'row',
@@ -1329,10 +1605,10 @@ const styles = StyleSheet.create({
     flex: 0.6,
   },
   formLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6b7280',
+    marginBottom: 4,
   },
   formInput: {
     backgroundColor: '#f9fafb',
@@ -1389,6 +1665,33 @@ const styles = StyleSheet.create({
 
   alertInputGroup: {
     gap: 6,
+  },
+  formGroup: {
+    marginBottom: 12,
+  },
+  profitDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    padding: 10,
+    borderRadius: 8,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  profitDisplayLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  profitDisplayValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: 'auto',
+  },
+  profitDisplayPercent: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   alertInputLabelRow: {
     flexDirection: 'row',
@@ -1509,17 +1812,84 @@ const styles = StyleSheet.create({
   detailInfoCard: {
     backgroundColor: '#fff',
     margin: 12,
-    padding: 16,
+    padding: 12,
     borderRadius: 12,
-    gap: 12,
+    gap: 10,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
+  detailNameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
   detailProductName: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 4,
+  },
+  detailActionButtons: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  detailActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#f9fafb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  detailCompactRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  detailCompactItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f9fafb',
+    padding: 8,
+    borderRadius: 6,
+  },
+  detailCompactLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  detailCompactValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  detailPriceGrid: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  detailPriceItem: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+    padding: 8,
+    borderRadius: 6,
+  },
+  detailPriceLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 2,
+  },
+  detailPriceValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  detailPriceValueSell: {
+    color: '#16a34a',
   },
   detailInfoGrid: {
     flexDirection: 'row',
@@ -1545,28 +1915,23 @@ const styles = StyleSheet.create({
   detailProfitCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0fdf4',
-    padding: 10,
-    borderRadius: 8,
-    gap: 6,
+    padding: 8,
+    borderRadius: 6,
+    gap: 4,
     borderWidth: 1,
-    borderColor: '#dcfce7',
   },
   detailProfitLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#16a34a',
   },
   detailProfitValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#16a34a',
     marginLeft: 'auto',
   },
   detailProfitPercent: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#16a34a',
   },
   detailHistorySection: {
     flex: 1,
@@ -1608,15 +1973,67 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   logItemCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 12,
     backgroundColor: '#fff',
     borderRadius: 8,
+    padding: 8,
+    borderLeftWidth: 3,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    gap: 4,
+  },
+  logItemTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logItemUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 1,
+  },
+  logItemUserName: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '600',
+  },
+  logItemTimeText: {
+    fontSize: 11,
+    color: '#9ca3af',
+    fontWeight: '500',
+    flexShrink: 0,
+  },
+  logItemBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  logItemQtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+  },
+  logItemQtyBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  logItemNotesText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontStyle: 'italic',
+    flex: 1,
   },
   logItem: {
     flexDirection: 'row',
