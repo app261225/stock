@@ -117,18 +117,15 @@ export default function ProfileScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Compact User Header */}
-      <View style={styles.userHeader}>
-        <MaterialCommunityIcons name="account-circle" size={48} color="#2563eb" />
-        <View style={styles.userBasicInfo}>
-          <Text style={styles.userName}>{session?.user?.full_name || 'User'}</Text>
-          <View style={styles.userInfoRow}>
-            <Text style={styles.username}>{session?.user?.username || 'username'}</Text>
-            <View style={[styles.roleBadge, { backgroundColor: roleStyle.backgroundColor }]}>
-              <MaterialCommunityIcons name={roleStyle.icon} size={10} color="#fff" />
-              <Text style={styles.roleText}>{session?.user?.role || 'staff'}</Text>
-            </View>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+      {/* User Info */}
+      <View style={styles.userInfoContainer}>
+        <Text style={styles.userName}>{session?.user?.full_name || 'User'}</Text>
+        <View style={styles.userInfoRow}>
+          <Text style={styles.username}>{session?.user?.username || 'username'}</Text>
+          <View style={[styles.roleBadge, { backgroundColor: roleStyle.backgroundColor }]}>
+            <MaterialCommunityIcons name={roleStyle.icon} size={10} color="#fff" />
+            <Text style={styles.roleText}>{session?.user?.role || 'staff'}</Text>
           </View>
         </View>
       </View>
@@ -220,30 +217,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
-  userHeader: {
-    flexDirection: 'row',
+  userInfoContainer: {
     alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  userBasicInfo: {
-    flex: 1,
     justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 2,
   },
   userName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 4,
+    textAlign: 'center',
   },
   userInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 4,
   },
   username: {
     fontSize: 12,
@@ -251,7 +242,7 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   roleBadge: {
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
@@ -268,9 +259,11 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: '#fff',
     marginHorizontal: 16,
-    marginVertical: 8,
+    marginVertical: 12,
+    marginTop: 16,
     borderRadius: 8,
     padding: 12,
+    gap: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -285,7 +278,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   configInputGroup: {
-    gap: 8,
+    gap: 4,
   },
   configLabel: {
     fontSize: 13,

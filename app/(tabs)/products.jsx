@@ -707,7 +707,7 @@ export default function ProductsScreen() {
           data={filteredProducts}
           renderItem={renderProduct}
           keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 120 }]}
           extraData={jpyToIdr}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#3b82f6']} />
@@ -1336,7 +1336,7 @@ export default function ProductsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f3f4f6',
   },
   header: {
     backgroundColor: '#fff',

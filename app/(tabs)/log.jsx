@@ -236,7 +236,7 @@ export default function LogScreen() {
           data={filteredLogs}
           renderItem={renderLogCard}
           keyExtractor={(item, index) => item.id?.toString() || index.toString()}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 120 }]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563eb']} />
           }
@@ -249,13 +249,13 @@ export default function LogScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f3f4f6',
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f3f4f6',
   },
   loadingText: {
     marginTop: 12,

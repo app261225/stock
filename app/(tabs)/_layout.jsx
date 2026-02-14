@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Platform, TouchableOpacity, Alert, View } from 'react-native';
+import { Platform, Alert, View, TouchableOpacity, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../../contexts/AuthContext';
 
@@ -29,64 +29,145 @@ export default function TabsLayout() {
   return (
     <>
       <Tabs
-      screenOptions={({ route }) => ({
-        tabBarActiveTintColor: '#2563eb',
-        tabBarInactiveTintColor: '#6b7280',
-        headerShown: true,
-        // PERBAIKAN: Konfigurasi header agar konten mepet
-        headerStyle: {
-          backgroundColor: '#ffffff',
-          elevation: 0,
-          shadowOpacity: 0,
-          borderBottomWidth: 1,
-          borderBottomColor: '#e5e7eb',
-        },
-        headerTitleStyle: {
-          fontSize: 18,
-          fontWeight: 'bold',
-          color: '#111827',
-        },
-        headerTitleAlign: 'center',
-        headerLeftContainerStyle: {
-          paddingLeft: 16,
-        },
-        headerRightContainerStyle: {
-          paddingRight: 0,
-        },
-        // PENTING: Hilangkan safe area default dari header
-        headerSafeAreaInsets: { top: 0 },
-        // PENTING: Set background untuk content area
-        contentStyle: {
-          backgroundColor: '#f3f4f6',
-        },
-        headerRight: () => {
-          // Logout button moved to profile page
-          return null;
-        },
-        tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopWidth: 1,
-          borderTopColor: '#e5e7eb',
-          height: 60 + insets.bottom,
-          paddingBottom: insets.bottom,
-          paddingTop: 8,
-          elevation: 8,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 3,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-          marginBottom: Platform.OS === 'android' ? 4 : 0,
-        },
-        tabBarIconStyle: {
-          marginTop: Platform.OS === 'android' ? 4 : 0,
-        },
-      })}
-    >
-      <Tabs.Screen
+        screenOptions={({ route }) => ({
+          tabBarActiveTintColor: '#2563eb',
+          tabBarInactiveTintColor: '#9ca3af',
+          headerShown: true,
+          // Premium Modern Header (Inspired by Figma, Stripe, Discord)
+          headerStyle: {
+            backgroundColor: '#ffffff',
+            elevation: 12,
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 20,
+            shadowOffset: { width: 0, height: 8 },
+            borderBottomWidth: 1,
+            borderBottomColor: '#f0f1f3',
+          },
+          headerTitleStyle: {
+            fontSize: 22,
+            fontWeight: '900',
+            color: '#0f172a',
+            letterSpacing: -0.5,
+          },
+          headerTitleAlign: 'center',
+          headerLeftContainerStyle: {
+            paddingLeft: 16,
+          },
+          headerRightContainerStyle: {
+            paddingRight: 16,
+          },
+          headerSafeAreaInsets: { top: 0 },
+          contentStyle: {
+            backgroundColor: '#f3f4f6',
+          },
+          headerRight: () => {
+            return null;
+          },
+          // Professional Modern Tab Bar
+          tabBarStyle: {
+            backgroundColor: '#ffffff',
+            borderTopWidth: 0,
+            height: 70 + insets.bottom,
+            paddingBottom: insets.bottom,
+            paddingTop: 0,
+            paddingHorizontal: 0,
+            elevation: 12,
+            shadowColor: '#000',
+            shadowOpacity: 0.1,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: -4 },
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+          },
+        })}
+        tabBar={(props) => {
+          return (
+            <View style={{
+              flexDirection: 'row',
+              paddingHorizontal: 0,
+              paddingTop: 8,
+              paddingBottom: insets.bottom,
+              backgroundColor: '#ffffff',
+              gap: 0,
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 70 + insets.bottom,
+              justifyContent: 'space-around',
+              alignItems: 'center',
+            }}>
+              {props.state.routes.map((route, index) => {
+                const { options } = props.descriptors[route.key];
+                const isFocused = props.state.index === index;
+                const label = options.tabBarLabel || options.title || route.name;
+                
+                const onPress = () => {
+                  const event = props.navigation.emit({
+                    type: 'tabPress',
+                    target: route.key,
+                    canPreventDefault: true,
+                  });
+                  if (!isFocused && !event.defaultPrevented) {
+                    props.navigation.navigate(route.name);
+                  }
+                };
+
+                const onLongPress = () => {
+                  props.navigation.emit({
+                    type: 'tabLongPress',
+                    target: route.key,
+                  });
+                };
+
+                return (
+                  <TouchableOpacity
+                    key={route.key}
+                    onPress={onPress}
+                    onLongPress={onLongPress}
+                    style={{
+                      flex: 1,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 0,
+                      backgroundColor: 'transparent',
+                      borderBottomWidth: isFocused ? 3 : 0,
+                      borderBottomColor: isFocused ? '#2563eb' : 'transparent',
+                    }}
+                    activeOpacity={0.6}
+                  >
+                    {/* Icon */}
+                    {options.tabBarIcon &&
+                      options.tabBarIcon({
+                        color: isFocused ? '#2563eb' : '#9ca3af',
+                        size: 24,
+                      })}
+
+                    {/* Label */}
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: isFocused ? '700' : '500',
+                        color: isFocused ? '#2563eb' : '#9ca3af',
+                        letterSpacing: -0.2,
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          );
+        }}
+      >
+        <Tabs.Screen
         name="index"
         options={{
           title: 'Dashboard',

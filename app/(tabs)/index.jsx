@@ -123,6 +123,7 @@ export default function DashboardScreen() {
   return (
     <ScrollView 
       style={styles.container}
+      contentContainerStyle={{ paddingBottom: 120 }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563eb']} />
       }
@@ -288,7 +289,7 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#f9fafb' 
+    backgroundColor: '#f3f4f6' 
   },
   loadingContainer: { 
     flex: 1, 
