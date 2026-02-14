@@ -6,30 +6,84 @@ import { useState, useRef, useEffect } from 'react';
 
 export default function ProfileScreen() {
   const { session, signOut } = useSession();
+  
+  // Simple states - keep it minimal
   const [jpyValue, setJpyValue] = useState('0');
   const [savedJpyValue, setSavedJpyValue] = useState('0');
+  const [realtimeJpyValue, setRealtimeJpyValue] = useState('0'); // Nilai realtime dari server
   const [loadingConfig, setLoadingConfig] = useState(true);
-  const isJpyChanged = parseFloat(jpyValue) !== parseFloat(savedJpyValue);
+  const [isSyncing, setIsSyncing] = useState(false);
+  
   const jpyInputRef = useRef(null);
+  const unsubscribeRef = useRef(null);
+  
+  const isJpyChanged = jpyValue !== savedJpyValue;
 
-  // Load JPY config from database on mount
+  // Load initial config on mount
   useEffect(() => {
     loadJpyConfig();
+    setupRealtimeListener();
+
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
   }, []);
 
   const loadJpyConfig = async () => {
     try {
       setLoadingConfig(true);
       const value = await configService.get('jpy_to_idr');
-      if (value) {
+      if (value != null) {
         setJpyValue(value);
         setSavedJpyValue(value);
+        setRealtimeJpyValue(value);
+        console.log('[Profile] Config loaded:', value);
       }
     } catch (error) {
       console.error('Load JPY config error:', error);
-      // Continue with default value
     } finally {
       setLoadingConfig(false);
+    }
+  };
+
+  const setupRealtimeListener = () => {
+    try {
+      const unsubscribe = configService.subscribeToConfig('jpy_to_idr', (updateData) => {
+        const remoteValue = updateData.value;
+        
+        console.log('[Profile] 🔄 Realtime update:', {
+          remoteValue,
+          currentEditValue: jpyValue,
+          hasChanges: isJpyChanged,
+        });
+
+        // Jika user sedang editing dan ada update dari user lain
+        if (isJpyChanged && jpyValue !== remoteValue) {
+          // Batalkan editing dan update ke nilai terbaru
+          console.log('[Profile] ⚠️ CONFLICT: Cancelling local changes');
+          setJpyValue(remoteValue);
+          setSavedJpyValue(remoteValue);
+          setRealtimeJpyValue(remoteValue);
+          
+          Alert.alert(
+            '⚠️ Nilai Diperbarui',
+            `Nilai telah diubah pengguna lain menjadi: ${remoteValue} IDR\n\nPerubahan Anda dibatalkan.`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          // Update normal - tidak ada conflict
+          console.log('[Profile] ✅ Syncing:', remoteValue);
+          setRealtimeJpyValue(remoteValue);
+          setJpyValue(remoteValue);
+          setSavedJpyValue(remoteValue);
+        }
+      });
+      
+      unsubscribeRef.current = unsubscribe;
+    } catch (error) {
+      console.error('Setup realtime listener error:', error);
     }
   };
 
@@ -57,17 +111,25 @@ export default function ProfileScreen() {
 
   const handleSaveJpy = async () => {
     try {
+      setIsSyncing(true);
       const formattedValue = formatToTwoDecimals(jpyValue);
+      
       await configService.set(
         'jpy_to_idr',
         formattedValue,
         'Kurs tukar Yen Jepang ke Rupiah Indonesia'
       );
+      
       setSavedJpyValue(formattedValue);
-      Alert.alert('Berhasil', `Nilai ¥ ke IDR disimpan: ${formattedValue}`);
+      setRealtimeJpyValue(formattedValue);
+      
+      Alert.alert('✅ Berhasil', `Nilai ¥ ke IDR: ${formattedValue} (Berlaku untuk semua pengguna)`);
+      console.log('[Profile] Saved:', formattedValue);
     } catch (error) {
-      console.error('Save JPY config error:', error);
-      Alert.alert('Error', 'Gagal menyimpan konfigurasi: ' + (error.message || 'Unknown error'));
+      console.error('Save error:', error);
+      Alert.alert('❌ Error', error.message);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -94,9 +156,8 @@ export default function ProfileScreen() {
   };
 
   const handleJpyChange = (value) => {
-    // Allow only numbers and one decimal point
     const filtered = value.replace(/[^0-9.]/g, '');
-    if (filtered.split('.').length > 2) return; // Prevent multiple decimals
+    if (filtered.split('.').length > 2) return;
     setJpyValue(filtered);
   };
 
@@ -153,8 +214,9 @@ export default function ProfileScreen() {
                 placeholder="Harga 1 Yen"
                 placeholderTextColor="#d1d5db"
                 keyboardType="decimal-pad"
+                editable={!isSyncing}
               />
-              {isJpyChanged && (
+              {isJpyChanged && !isSyncing && (
                 <TouchableOpacity 
                   style={styles.saveButtonInside}
                   onPress={handleSaveJpy}
@@ -163,9 +225,41 @@ export default function ProfileScreen() {
                   <MaterialCommunityIcons name="check" size={16} color="#fff" />
                 </TouchableOpacity>
               )}
+              {isSyncing && (
+                <View style={styles.savingSpin}>
+                  <MaterialCommunityIcons name="loading" size={16} color="#3b82f6" />
+                </View>
+              )}
             </View>
             <Text style={styles.configUnit}>IDR</Text>
           </View>
+        </View>
+      </View>
+
+      {/* Realtime Config Display Card */}
+      <View style={styles.section}>
+        <View style={styles.realtimeHeaderRow}>
+          <Text style={styles.sectionTitle}>Konfigurasi Realtime</Text>
+          <View style={styles.liveBadge}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>LIVE</Text>
+          </View>
+        </View>
+
+        <View style={styles.realtimeCard}>
+          <View style={styles.realtimeCardContent}>
+            <View>
+              <Text style={styles.realtimeKey}>jpy_to_idr</Text>
+              <Text style={styles.realtimeDesc}>Kurs Yen Jepang ke Rupiah</Text>
+            </View>
+            <View style={styles.realtimeValue}>
+              <Text style={styles.realtimeAmount}>{realtimeJpyValue || '0'}</Text>
+              <Text style={styles.realtimeCurrency}>IDR</Text>
+            </View>
+          </View>
+          <Text style={styles.realtimeFooter}>
+            💡 Diperbarui realtime untuk semua pengguna
+          </Text>
         </View>
       </View>
 
@@ -250,12 +344,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#6b7280',
-    marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   configInputGroup: {
-    gap: 6,
+    gap: 8,
   },
   configLabel: {
     fontSize: 13,
@@ -300,13 +393,88 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  saveButton: {
-    backgroundColor: '#16a34a',
-    width: 32,
+  savingSpin: {
+    position: 'absolute',
+    right: 8,
+    top: '50%',
+    marginTop: -16,
+    backgroundColor: '#3b82f6',
+    width: 40,
     height: 32,
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  realtimeHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10b981',
+  },
+  liveText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#047857',
+    letterSpacing: 0.5,
+  },
+  realtimeCard: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 8,
+    padding: 12,
+  },
+  realtimeCardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  realtimeKey: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#065f46',
+    marginBottom: 2,
+  },
+  realtimeDesc: {
+    fontSize: 11,
+    color: '#10b981',
+  },
+  realtimeValue: {
+    alignItems: 'flex-end',
+  },
+  realtimeAmount: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#047857',
+  },
+  realtimeCurrency: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  realtimeFooter: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontStyle: 'italic',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#bbf7d0',
   },
   logoutButton: {
     flexDirection: 'row',

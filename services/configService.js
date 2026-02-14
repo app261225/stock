@@ -15,7 +15,6 @@ const configService = {
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        // PGRST116 = no rows returned
         throw error;
       }
 
@@ -134,6 +133,113 @@ const configService = {
     } catch (error) {
       console.error(`Delete config error for key "${key}":`, error);
       throw new Error(error.message || 'Gagal menghapus konfigurasi');
+    }
+  },
+
+  /**
+   * Subscribe to realtime changes for a specific config key
+   * PROFESSIONAL: Subscribe dengan immediate update untuk semua perubahan dari user lain
+   * @param {string} key - Configuration key
+   * @param {Function} onUpdate - Callback function with immediate updates
+   * @returns {Function} Unsubscribe function
+   */
+  subscribeToConfig(key, onUpdate) {
+    try {
+      const channel = supabase
+        .channel(`public:konfigurasi:${key}`, {
+          config: {
+            broadcast: { self: false },
+          },
+        })
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Subscribe to ALL events (INSERT, UPDATE, DELETE)
+            schema: 'public',
+            table: 'konfigurasi',
+            filter: `config_key=eq.${key}`,
+          },
+          (payload) => {
+            console.log('[Realtime] Event received:', {
+              event: payload.eventType,
+              new: payload.new,
+              old: payload.old,
+            });
+            
+            // Trigger immediate update dengan data lengkap
+            if (payload.new?.config_value) {
+              const updateData = {
+                value: payload.new.config_value,
+                timestamp: payload.new.created_at || new Date().toISOString(),
+                event: payload.eventType,
+              };
+              onUpdate(updateData);
+              console.log(`[Realtime] Config "${key}" updated:`, updateData);
+            }
+          }
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`[Realtime] ✅ Subscribed to config: ${key}`);
+          }
+          if (status === 'CHANNEL_ERROR') {
+            console.error(`[Realtime] ❌ Channel error for ${key}:`, err);
+          }
+          if (status === 'TIMED_OUT') {
+            console.error(`[Realtime] ⏱️ Subscription timed out for ${key}`);
+          }
+          if (err) {
+            console.error(`[Realtime] Error for ${key}:`, err);
+          }
+        });
+
+      // Return unsubscribe function
+      return () => {
+        supabase.removeChannel(channel);
+        console.log(`[Realtime] Unsubscribed from config: ${key}`);
+      };
+    } catch (error) {
+      console.error(`Subscribe to config error for key "${key}":`, error);
+      throw new Error(error.message || 'Gagal subscribe ke konfigurasi');
+    }
+  },
+
+  /**
+   * Subscribe to realtime changes for all configurations
+   * @param {Function} onUpdate - Callback function for updates
+   * @returns {Function} Unsubscribe function
+   */
+  subscribeToAllConfigs(onUpdate) {
+    try {
+      const channel = supabase
+        .channel('public:konfigurasi:all')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'konfigurasi',
+          },
+          (payload) => {
+            onUpdate(payload);
+          }
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Subscribed to all configs');
+          }
+          if (err) {
+            console.error('Subscription error:', err);
+          }
+        });
+
+      // Return unsubscribe function
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } catch (error) {
+      console.error('Subscribe to all configs error:', error);
+      throw new Error(error.message || 'Gagal subscribe ke konfigurasi');
     }
   },
 };
