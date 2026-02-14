@@ -233,8 +233,8 @@ export default function DashboardScreen() {
 
         {/* Activity Today - 2x2 Compact Boxes */}
         <View style={[styles.stockStatusGrid, { marginTop: 12 }]}>
-          {/* IN Today */}
-          <View style={styles.compactStatBox}>
+          {/* IN Today (click -> Log filter IN) */}
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'in' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#dcfce7' }]}>
               <MaterialCommunityIcons name="package-down" size={20} color="#16a34a" />
             </View>
@@ -242,10 +242,10 @@ export default function DashboardScreen() {
               <Text style={styles.compactStatNumber}>{todayStats.totalIn}</Text>
               <Text style={styles.compactStatLabel}>IN (Hari ini)</Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
-          {/* OUT Today */}
-          <View style={styles.compactStatBox}>
+          {/* OUT Today (click -> Log filter OUT) */}
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'out' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#fee2e2' }]}>
               <MaterialCommunityIcons name="package-up" size={20} color="#ef4444" />
             </View>
@@ -253,10 +253,10 @@ export default function DashboardScreen() {
               <Text style={styles.compactStatNumber}>{todayStats.totalOut}</Text>
               <Text style={styles.compactStatLabel}>OUT (Hari ini)</Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
-          {/* Total IN */}
-          <View style={styles.compactStatBox}>
+          {/* Total IN (click -> Log filter IN) */}
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'in' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#e0e7ff' }]}>
               <MaterialCommunityIcons name="plus" size={20} color="#4f46e5" />
             </View>
@@ -264,10 +264,10 @@ export default function DashboardScreen() {
               <Text style={styles.compactStatNumber}>{allTimeStats.totalIn}</Text>
               <Text style={styles.compactStatLabel}>Total IN</Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
-          {/* Total OUT */}
-          <View style={styles.compactStatBox}>
+          {/* Total OUT (click -> Log filter OUT) */}
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'out' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#fce7f3' }]}>
               <MaterialCommunityIcons name="minus" size={20} color="#ec4899" />
             </View>
@@ -275,7 +275,7 @@ export default function DashboardScreen() {
               <Text style={styles.compactStatNumber}>{allTimeStats.totalOut}</Text>
               <Text style={styles.compactStatLabel}>Total OUT</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
       </Animated.View>
 

@@ -33,22 +33,22 @@ export default function TabsLayout() {
           tabBarActiveTintColor: '#2563eb',
           tabBarInactiveTintColor: '#9ca3af',
           headerShown: true,
-          // Premium Modern Header (Inspired by Figma, Stripe, Discord)
+          // Modern Light Header (no neon)
           headerStyle: {
             backgroundColor: '#ffffff',
-            elevation: 12,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 20,
-            shadowOffset: { width: 0, height: 8 },
             borderBottomWidth: 1,
-            borderBottomColor: '#f0f1f3',
+            borderBottomColor: '#eef2f7',
+            elevation: 1,
+            shadowColor: '#000',
+            shadowOpacity: 0.02,
+            shadowRadius: 3,
+            shadowOffset: { width: 0, height: 1 },
           },
           headerTitleStyle: {
-            fontSize: 22,
-            fontWeight: '900',
-            color: '#0f172a',
-            letterSpacing: -0.5,
+            fontSize: 20,
+            fontWeight: '700',
+            color: '#111827',
+            letterSpacing: -0.25,
           },
           headerTitleAlign: 'center',
           headerLeftContainerStyle: {
@@ -61,9 +61,7 @@ export default function TabsLayout() {
           contentStyle: {
             backgroundColor: '#f3f4f6',
           },
-          headerRight: () => {
-            return null;
-          },
+          headerRight: () => null,
           // Professional Modern Tab Bar
           tabBarStyle: {
             backgroundColor: '#ffffff',

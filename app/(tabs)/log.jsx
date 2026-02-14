@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRoute } from '@react-navigation/native';
 import { useSession } from '../../contexts/AuthContext';
 import stockLogService from '../../services/stockLogService';
 
@@ -22,7 +24,8 @@ export default function LogScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Filter & Search state
-  const [filter, setFilter] = useState('all');
+  const route = useRoute();
+  const [filter, setFilter] = useState(route?.params?.filter || 'all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Load initial data
