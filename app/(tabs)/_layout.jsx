@@ -46,7 +46,7 @@ export default function TabsLayout() {
           fontWeight: 'bold',
           color: '#111827',
         },
-        headerTitleAlign: 'left',
+        headerTitleAlign: 'center',
         headerLeftContainerStyle: {
           paddingLeft: 16,
         },
@@ -60,22 +60,8 @@ export default function TabsLayout() {
           backgroundColor: '#f3f4f6',
         },
         headerRight: () => {
-          // Show logout button only
-          return (
-            <View style={{ flexDirection: 'row', gap: 8, marginRight: 16 }}>
-              <TouchableOpacity 
-                onPress={handleLogout}
-                style={{ 
-                  padding: 8,
-                  borderRadius: 8,
-                  backgroundColor: '#fee2e2',
-                }}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="logout" size={22} color="#ef4444" />
-              </TouchableOpacity>
-            </View>
-          );
+          // Logout button moved to profile page
+          return null;
         },
         tabBarStyle: {
           backgroundColor: '#ffffff',
@@ -127,6 +113,16 @@ export default function TabsLayout() {
           tabBarLabel: 'Log',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="history" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="account-circle" size={size} color={color} />
           ),
         }}
       />

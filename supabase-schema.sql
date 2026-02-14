@@ -47,7 +47,7 @@ CREATE TABLE products (
     min_stock INTEGER DEFAULT 5,
     
     -- Pricing (using DECIMAL for precision)
-    harga_modal_cny DECIMAL(15,2) DEFAULT 0,
+    harga_modal_non_rp DECIMAL(15,2) DEFAULT 0,
     harga_modal_rp DECIMAL(15,2) DEFAULT 0,
     harga_jual_rp DECIMAL(15,2) DEFAULT 0,
     
@@ -183,7 +183,7 @@ INSERT INTO users (username, password, full_name, role) VALUES
 ('staff1', 'staff123', 'Staff User', 'staff');
 
 -- Insert sample products
-INSERT INTO products (sku, nama_produk, stock, min_stock, harga_modal_cny, harga_modal_rp, harga_jual_rp, created_by) 
+INSERT INTO products (sku, nama_produk, stock, min_stock, harga_modal_non_rp, harga_modal_rp, harga_jual_rp, created_by) 
 SELECT 
     'SKU-001', 
     'Kemeja Flanel Kotak-kotak', 
@@ -196,7 +196,7 @@ SELECT
 FROM users WHERE username = 'admin'
 LIMIT 1;
 
-INSERT INTO products (sku, nama_produk, stock, min_stock, harga_modal_cny, harga_modal_rp, harga_jual_rp, created_by) 
+INSERT INTO products (sku, nama_produk, stock, min_stock, harga_modal_non_rp, harga_modal_rp, harga_jual_rp, created_by) 
 SELECT 
     'SKU-002', 
     'Celana Chino Navy', 
@@ -209,7 +209,7 @@ SELECT
 FROM users WHERE username = 'admin'
 LIMIT 1;
 
-INSERT INTO products (sku, nama_produk, stock, min_stock, harga_modal_cny, harga_modal_rp, harga_jual_rp, created_by) 
+INSERT INTO products (sku, nama_produk, stock, min_stock, harga_modal_non_rp, harga_modal_rp, harga_jual_rp, created_by) 
 SELECT 
     'SKU-003', 
     'Jaket Bomber', 

@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSession } from '../../contexts/AuthContext';
 import productService from '../../services/productService';
 import stockLogService from '../../services/stockLogService';
+import configService from '../../services/configService';
 
 export default function ProductsScreen() {
   const { session } = useSession();
@@ -18,13 +19,15 @@ export default function ProductsScreen() {
   const [filter, setFilter] = useState('all');
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [jpyRate, setJpyRate] = useState(0);
+  const [loadingJpyRate, setLoadingJpyRate] = useState(true);
   
   // Add product modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [addFormData, setAddFormData] = useState({
     sku: '',
     nama_produk: '',
-    harga_modal_cny: '',
+    harga_modal_non_rp: '',
     harga_modal_rp: '',
     harga_jual_rp: '',
     min_stock: '',
@@ -45,6 +48,7 @@ export default function ProductsScreen() {
   const [detailProduct, setDetailProduct] = useState(null);
   const [stockLogs, setStockLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [logsRequested, setLogsRequested] = useState(false);
   const [logsPage, setLogsPage] = useState(1);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [totalLogs, setTotalLogs] = useState(0);
@@ -65,6 +69,7 @@ export default function ProductsScreen() {
 
   useEffect(() => {
     loadProducts();
+    loadJpyRate();
     
     // Keyboard listeners
     const keyboardDidShowListener = Keyboard.addListener(
@@ -81,6 +86,20 @@ export default function ProductsScreen() {
       keyboardDidHideListener.remove();
     };
   }, []);
+
+  const loadJpyRate = async () => {
+    try {
+      setLoadingJpyRate(true);
+      const rate = await configService.get('jpy_to_idr');
+      if (rate) {
+        setJpyRate(parseFloat(rate));
+      }
+    } catch (error) {
+      console.error('Load JPY rate error:', error);
+    } finally {
+      setLoadingJpyRate(false);
+    }
+  };
 
   // Apply filter from route params when navigating from dashboard
   useEffect(() => {
@@ -169,34 +188,88 @@ export default function ProductsScreen() {
     }).format(value);
   };
 
-  const handleCNYChange = (value) => {
-    const numValue = value.replace(/[^0-9]/g, '');
+  const handleNonRpChange = (value) => {
+    // Allow digits, dot (thousand separator), and comma (decimal separator)
+    let formattedValue = value.replace(/[^0-9.,]/g, '');
+    
+    // Prevent multiple commas (decimal separator)
+    const commaParts = formattedValue.split(',');
+    if (commaParts.length > 2) return;
+    
+    // Prevent multiple decimals in decimal part
+    if (commaParts.length === 2 && commaParts[1].includes(',')) return;
+    
+    // Parse for calculation (convert . to empty, , to .)
+    let parseValue = formattedValue.replace(/\./g, '').replace(',', '.');
+    
+    let conversionValue = '';
+    if (parseValue && jpyRate > 0) {
+      const yen = parseFloat(parseValue);
+      if (!isNaN(yen)) {
+        conversionValue = Math.round(yen * jpyRate).toString();
+      }
+    }
     
     setAddFormData({
       ...addFormData,
-      harga_modal_cny: numValue,
-      harga_modal_rp: numValue,
+      harga_modal_non_rp: formattedValue,
+      harga_modal_rp: conversionValue,
     });
+  };
+
+  // Format number dengan thousand separator (. untuk ribuan, , untuk desimal jika ada)
+  const formatNumberWithSeparator = (value, allowDecimal = false) => {
+    // Remove non-numeric (except . and ,)
+    let cleaned = value.replace(/[^0-9.,]/g, '');
+    
+    if (!allowDecimal) {
+      // Remove all dots and commas for integer-only fields
+      cleaned = cleaned.replace(/[.,]/g, '');
+    } else {
+      // Allow . for thousands, , for decimals
+      const commaParts = cleaned.split(',');
+      if (commaParts.length > 2) return value; // Prevent multiple commas
+    }
+    
+    return cleaned;
+  };
+  
+  // Parse value with separator back to raw number
+  const parseNumberWithSeparator = (value) => {
+    // Remove thousand separator (.), replace decimal separator (,) with .
+    return parseFloat(value.replace(/\./g, '').replace(',', '.'));
+  };
+  
+  // Format raw number for display with thousand separator
+  const displayNumberWithSeparator = (value) => {
+    if (!value) return '';
+    const num = parseNumberWithSeparator(value);
+    if (isNaN(num)) return value;
+    return num.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   };
 
   const handleHargaJualChange = (value) => {
-    const jualValue = value.replace(/[^0-9]/g, '');
+    const formatted = formatNumberWithSeparator(value, true);
     setAddFormData({
       ...addFormData,
-      harga_jual_rp: jualValue,
+      harga_jual_rp: formatted,
     });
   };
-
-  const calculateProfit = () => {
-    const modal = parseFloat(addFormData.harga_modal_rp) || 0;
-    const jual = parseFloat(addFormData.harga_jual_rp) || 0;
-    const profit = jual - modal;
-    const profitPercent = modal > 0 ? ((profit / modal) * 100) : 0;
-    
-    return {
-      profit,
-      profitPercent: profitPercent.toFixed(1),
-    };
+  
+  const handleStockChange = (value) => {
+    const formatted = formatNumberWithSeparator(value, false);
+    setAddFormData({
+      ...addFormData,
+      stock: formatted,
+    });
+  };
+  
+  const handleMinStockChange = (value) => {
+    const formatted = formatNumberWithSeparator(value, false);
+    setAddFormData({
+      ...addFormData,
+      min_stock: formatted,
+    });
   };
 
   const handleAddProduct = async () => {
@@ -283,7 +356,7 @@ export default function ProductsScreen() {
     setAddFormData({
       sku: '',
       nama_produk: '',
-      harga_modal_cny: '',
+      harga_modal_non_rp: '',
       harga_modal_rp: '',
       harga_jual_rp: '',
       min_stock: '',
@@ -292,12 +365,12 @@ export default function ProductsScreen() {
     setShowAddModal(true);
   };
 
-  const openProductDetail = async (product) => {
+  const openProductDetail = (product) => {
     setDetailProduct(product);
     setShowDetailModal(true);
     setStockLogs([]);
     setLogsPage(1);
-    await loadStockLogs(product.id, 1);
+    setLogsRequested(false);
   };
 
   const handleEditProduct = () => {
@@ -371,6 +444,13 @@ export default function ProductsScreen() {
     );
   };
 
+  const handleLoadStockLogs = async () => {
+    if (detailProduct) {
+      setLogsRequested(true);
+      await loadStockLogs(detailProduct.id, 1);
+    }
+  };
+
   const loadStockLogs = async (productId, page) => {
     try {
       setLogsLoading(true);
@@ -442,10 +522,20 @@ export default function ProductsScreen() {
           activeOpacity={0.7}
           onPress={() => openProductDetail(item)}
         >
-          {/* Header: SKU + Status */}
+          {/* Header: SKU + Stock + Status */}
           <View style={styles.cardHeader}>
             <Text style={styles.skuText}>{item.sku}</Text>
-            <View style={[styles.statusPill, { backgroundColor: status.bgColor }]}>
+            <View style={styles.stockHeaderContainer}>
+              <View style={styles.stockBadge}>
+                <Text style={styles.stockLabel}>Stock</Text>
+                <Text style={styles.stockHeaderValue}>{item.stock}</Text>
+              </View>
+              <View style={styles.stockMinBadge}>
+                <Text style={styles.stockMinLabel}>Stock Min.</Text>
+                <Text style={styles.stockMinValue}>{item.min_stock}</Text>
+              </View>
+            </View>
+            <View style={[styles.statusPill, { borderColor: status.color }]}>
               <Text style={[styles.statusLabel, { color: status.color }]}>{status.label}</Text>
             </View>
           </View>
@@ -456,26 +546,16 @@ export default function ProductsScreen() {
           {/* Price Info Grid - Compact 2 columns */}
           <View style={styles.priceGrid}>
             <View style={styles.priceCol}>
-              <Text style={styles.priceLabel}>Modal</Text>
-              <Text style={styles.priceValue}>{formatCurrency(item.harga_modal_rp)}</Text>
+              <View style={styles.priceWithIcon}>
+                <MaterialCommunityIcons name="calculator" size={14} color="#6b7280" />
+                <Text style={styles.priceValue}>{formatCurrency(item.harga_modal_rp)}</Text>
+              </View>
             </View>
             <View style={styles.priceCol}>
-              <Text style={styles.priceLabel}>Jual</Text>
-              <Text style={[styles.priceValue, styles.priceValueSell]}>{formatCurrency(item.harga_jual_rp)}</Text>
-            </View>
-          </View>
-
-          {/* Stock Info and Profit Badge - Inline */}
-          <View style={styles.stockProfitRow}>
-            <View style={styles.stockInfoRow}>
-              <MaterialCommunityIcons name="cube-outline" size={13} color="#6b7280" />
-              <Text style={styles.stockLabel}>Stock</Text>
-              <Text style={styles.stockValue}>{item.stock}/{item.min_stock}</Text>
-            </View>
-            <View style={[styles.profitBadge, { backgroundColor: profitStyle.bgColor }]}>
-              <MaterialCommunityIcons name={profitStyle.icon} size={12} color={profitStyle.color} />
-              <Text style={[styles.profitAmount, { color: profitStyle.color }]}>{formatCurrency(profit)}</Text>
-              <Text style={[styles.profitPercent, { color: profitStyle.color }]}>({profitPercent}%)</Text>
+              <View style={styles.priceWithIcon}>
+                <MaterialCommunityIcons name="storefront" size={14} color="#16a34a" />
+                <Text style={[styles.priceValue, styles.priceValueSell]}>{formatCurrency(item.harga_jual_rp)}</Text>
+              </View>
             </View>
           </View>
         </TouchableOpacity>
@@ -486,7 +566,7 @@ export default function ProductsScreen() {
             style={styles.actionBtnVertical}
             onPress={() => openStockModal(item, 'IN')}
           >
-            <MaterialCommunityIcons name="package-down" size={20} color="#16a34a" />
+            <MaterialCommunityIcons name="package-down" size={18} color="#16a34a" />
             <Text style={styles.actionBtnVerticalText}>IN</Text>
           </TouchableOpacity>
           
@@ -494,7 +574,7 @@ export default function ProductsScreen() {
             style={styles.actionBtnVertical}
             onPress={() => openStockModal(item, 'OUT')}
           >
-            <MaterialCommunityIcons name="package-up" size={20} color="#ef4444" />
+            <MaterialCommunityIcons name="package-up" size={18} color="#ef4444" />
             <Text style={styles.actionBtnVerticalText}>OUT</Text>
           </TouchableOpacity>
         </View>
@@ -506,7 +586,7 @@ export default function ProductsScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        {/* Search + Add Button */}
+        {/* Search */}
         <View style={styles.searchRow}>
           <View style={styles.searchContainer}>
             <MaterialCommunityIcons name="magnify" size={20} color="#9ca3af" style={styles.searchIcon} />
@@ -523,9 +603,6 @@ export default function ProductsScreen() {
               </TouchableOpacity>
             )}
           </View>
-          <TouchableOpacity style={styles.addButton} onPress={openAddProductModal}>
-            <MaterialCommunityIcons name="plus" size={22} color="#fff" />
-          </TouchableOpacity>
         </View>
 
         {/* Filter Chips */}
@@ -561,11 +638,16 @@ export default function ProductsScreen() {
             ))}
           </View>
           
-          {/* Product Count */}
-          <View style={styles.productCount}>
-            <Text style={styles.productCountText}>
-              Terdapat <Text style={styles.productCountNumber}>{filteredProducts.length}</Text> produk
-            </Text>
+          {/* Product Count + Add Button */}
+          <View style={styles.productCountRow}>
+            <View style={styles.productCount}>
+              <Text style={styles.productCountText}>
+                Terdapat <Text style={styles.productCountNumber}>{filteredProducts.length}</Text> produk
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.addBadgeButton} onPress={openAddProductModal}>
+              <Text style={styles.addBadgeText}>Tambah Produk</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -657,20 +739,23 @@ export default function ProductsScreen() {
                     </View>
                   </View>
 
-                  {/* Harga Modal CNY + RP (auto-copy) */}
+                  {/* Harga Modal Yen (¥) + RP - Perfect Alignment */}
                   <View style={styles.formRow}>
                     <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Modal (CNY)</Text>
+                      <Text style={styles.formLabel}>Modal (¥)</Text>
                       <View style={styles.inputWithPrefix}>
                         <Text style={styles.inputPrefix}>¥</Text>
                         <TextInput
                           style={[styles.formInput, styles.inputPrefixed]}
                           placeholder="0"
-                          value={addFormData.harga_modal_cny}
-                          onChangeText={handleCNYChange}
-                          keyboardType="numeric"
+                          value={addFormData.harga_modal_non_rp}
+                          onChangeText={handleNonRpChange}
+                          keyboardType="decimal-pad"
                         />
                       </View>
+                      {!loadingJpyRate && jpyRate > 0 && (
+                        <Text style={styles.conversionRateHint}>1¥ = {jpyRate.toLocaleString('id-ID')}</Text>
+                      )}
                     </View>
                     <View style={styles.formCol50}>
                       <Text style={styles.formLabel}>Modal (RP)</Text>
@@ -678,16 +763,16 @@ export default function ProductsScreen() {
                         <Text style={styles.inputPrefix}>Rp</Text>
                         <TextInput
                           style={[styles.formInput, styles.inputPrefixed, styles.inputReadonly]}
-                          value={addFormData.harga_modal_rp}
+                          value={addFormData.harga_modal_rp ? displayNumberWithSeparator(addFormData.harga_modal_rp) : ''}
                           editable={false}
                         />
                       </View>
                     </View>
                   </View>
 
-                  {/* Harga Jual + Profit% */}
+                  {/* Harga Jual, Stock Awal, Min Stock - 3 Columns */}
                   <View style={styles.formRow}>
-                    <View style={styles.formCol60}>
+                    <View style={styles.formCol50}>
                       <Text style={styles.formLabel}>Harga Jual (RP)</Text>
                       <View style={styles.inputWithPrefix}>
                         <Text style={styles.inputPrefix}>Rp</Text>
@@ -700,39 +785,23 @@ export default function ProductsScreen() {
                         />
                       </View>
                     </View>
-                    <View style={styles.formCol40}>
-                      <Text style={styles.formLabel}>Profit</Text>
-                      <View style={styles.percentBox}>
-                        <Text style={[
-                          styles.percentValue,
-                          { color: calculateProfit().profit >= 0 ? '#16a34a' : '#dc2626' }
-                        ]}>
-                          {calculateProfit().profitPercent}
-                        </Text>
-                        <Text style={styles.percentSymbol}>%</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Stock + Min Stock */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol50}>
+                    <View style={styles.formCol25}>
                       <Text style={styles.formLabel}>Stock Awal</Text>
                       <TextInput
                         style={styles.formInput}
                         placeholder="0"
                         value={addFormData.stock}
-                        onChangeText={(text) => setAddFormData({ ...addFormData, stock: text.replace(/[^0-9]/g, '') })}
+                        onChangeText={handleStockChange}
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={styles.formCol50}>
+                    <View style={styles.formCol25}>
                       <Text style={styles.formLabel}>Min Stock</Text>
                       <TextInput
                         style={styles.formInput}
                         placeholder="0"
                         value={addFormData.min_stock}
-                        onChangeText={(text) => setAddFormData({ ...addFormData, min_stock: text.replace(/[^0-9]/g, '') })}
+                        onChangeText={handleMinStockChange}
                         keyboardType="numeric"
                       />
                     </View>
@@ -917,69 +986,53 @@ export default function ProductsScreen() {
                 </View>
                 
                 {/* Stock Row */}
-                <View style={styles.detailCompactRow}>
-                  <View style={styles.detailCompactItem}>
-                    <MaterialCommunityIcons name="cube-outline" size={14} color="#6b7280" />
-                    <Text style={styles.detailCompactLabel}>Stock:</Text>
-                    <Text style={styles.detailCompactValue}>{detailProduct?.stock}</Text>
+                <View style={styles.detailStockContainer}>
+                  <View style={styles.detailStockBadge}>
+                    <Text style={styles.detailStockLabel}>Stock</Text>
+                    <Text style={styles.detailStockValue}>{detailProduct?.stock}</Text>
                   </View>
-                  <View style={styles.detailCompactItem}>
-                    <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#6b7280" />
-                    <Text style={styles.detailCompactLabel}>Min:</Text>
-                    <Text style={styles.detailCompactValue}>{detailProduct?.min_stock}</Text>
+                  <View style={styles.detailStockMinBadge}>
+                    <Text style={styles.detailStockMinLabel}>Stock Min.</Text>
+                    <Text style={styles.detailStockMinValue}>{detailProduct?.min_stock}</Text>
                   </View>
                 </View>
 
-                {/* Price Grid - Compact */}
+                {/* Price Grid - Compact with Icons */}
                 <View style={styles.detailPriceGrid}>
                   <View style={styles.detailPriceItem}>
-                    <Text style={styles.detailPriceLabel}>Modal</Text>
-                    <Text style={styles.detailPriceValue}>{formatCurrency(detailProduct?.harga_modal_rp || 0)}</Text>
+                    <View style={styles.detailPriceWithIcon}>
+                      <MaterialCommunityIcons name="calculator" size={14} color="#6b7280" />
+                      <Text style={styles.detailPriceValue}>{formatCurrency(detailProduct?.harga_modal_rp || 0)}</Text>
+                    </View>
                   </View>
                   <View style={styles.detailPriceItem}>
-                    <Text style={styles.detailPriceLabel}>Jual</Text>
-                    <Text style={[styles.detailPriceValue, styles.detailPriceValueSell]}>
-                      {formatCurrency(detailProduct?.harga_jual_rp || 0)}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Profit Badge */}
-                {detailProduct && (() => {
-                  const profit = detailProduct.harga_jual_rp - detailProduct.harga_modal_rp;
-                  const profitPercent = ((profit / detailProduct.harga_modal_rp) * 100).toFixed(1);
-                  const profitStyle = profit >= 0 
-                    ? { color: '#16a34a', bgColor: '#f0fdf4', borderColor: '#dcfce7', icon: 'trending-up' }
-                    : { color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fee2e2', icon: 'trending-down' };
-                  
-                  return (
-                    <View style={[styles.detailProfitCard, { 
-                      backgroundColor: profitStyle.bgColor,
-                      borderColor: profitStyle.borderColor 
-                    }]}>
-                      <MaterialCommunityIcons name={profitStyle.icon} size={14} color={profitStyle.color} />
-                      <Text style={[styles.detailProfitLabel, { color: profitStyle.color }]}>Profit:</Text>
-                      <Text style={[styles.detailProfitValue, { color: profitStyle.color }]}>
-                        {formatCurrency(profit)}
-                      </Text>
-                      <Text style={[styles.detailProfitPercent, { color: profitStyle.color }]}>
-                        ({profitPercent}%)
+                    <View style={styles.detailPriceWithIcon}>
+                      <MaterialCommunityIcons name="storefront" size={14} color="#16a34a" />
+                      <Text style={[styles.detailPriceValue, styles.detailPriceValueSell]}>
+                        {formatCurrency(detailProduct?.harga_jual_rp || 0)}
                       </Text>
                     </View>
-                  );
-                })()}
+                  </View>
+                </View>
               </View>
 
               {/* Stock History */}
               <View style={styles.detailHistorySection}>
                 <View style={styles.detailHistoryHeader}>
                   <Text style={styles.detailHistoryTitle}>Riwayat Stock</Text>
-                  <Text style={styles.detailHistoryCount}>
-                    {totalLogs} {totalLogs === 1 ? 'transaksi' : 'transaksi'}
-                  </Text>
+                  {logsRequested && (
+                    <Text style={styles.detailHistoryCount}>
+                      {totalLogs} {totalLogs === 1 ? 'transaksi' : 'transaksi'}
+                    </Text>
+                  )}
                 </View>
 
-                {stockLogs.length === 0 && !logsLoading ? (
+                {!logsRequested ? (
+                  <TouchableOpacity style={styles.loadHistoryButton} onPress={handleLoadStockLogs}>
+                    <MaterialCommunityIcons name="history" size={18} color="#fff" />
+                    <Text style={styles.loadHistoryButtonText}>Tampilkan Riwayat</Text>
+                  </TouchableOpacity>
+                ) : stockLogs.length === 0 && !logsLoading ? (
                   <View style={styles.detailEmptyLogs}>
                     <MaterialCommunityIcons name="history" size={48} color="#d1d5db" />
                     <Text style={styles.detailEmptyLogsText}>Belum ada riwayat stock</Text>
@@ -1234,19 +1287,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 8,
   },
-  addButton: {
-    width: 44,
-    height: 44,
-    backgroundColor: '#3b82f6',
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
   searchContainer: {
     flex: 1,
     flexDirection: 'row',
@@ -1297,6 +1337,11 @@ const styles = StyleSheet.create({
   filterChipTextActive: {
     color: '#fff',
   },
+  productCountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   productCount: {
     paddingVertical: 4,
   },
@@ -1308,6 +1353,19 @@ const styles = StyleSheet.create({
   productCountNumber: {
     fontWeight: '700',
     color: '#111827',
+  },
+  addBadgeButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBadgeText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 11,
   },
   centerContainer: {
     flex: 1,
@@ -1342,28 +1400,27 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   actionColumn: {
-    width: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 9,
+    width: 44,
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    paddingVertical: 0,
     backgroundColor: '#f9fafb',
     borderLeftWidth: 1,
     borderLeftColor: '#e5e7eb',
   },
   actionBtnVertical: {
-    width: 46,
-    height: 46,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    flex: 1,
+    width: '100%',
+    borderRadius: 0,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 1,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderWidth: 0,
+    borderColor: 'transparent',
   },
   actionBtnVerticalText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     color: '#6b7280',
   },
@@ -1379,17 +1436,69 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 6,
   },
   skuText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#6b7280',
     letterSpacing: 0.3,
+    flex: 1,
+  },
+  stockHeaderBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#eff6ff',
+  },
+  stockHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  stockBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#eff6ff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  stockLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#1e40af',
+  },
+  stockHeaderValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
+  },
+  stockMinBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#fef3c7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+  },
+  stockMinLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#b45309',
+  },
+  stockMinValue: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#b45309',
   },
   statusPill: {
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 8,
+    borderWidth: 1,
   },
   statusLabel: {
     fontSize: 11,
@@ -1402,26 +1511,6 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 1,
   },
-  stockProfitRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  stockInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  stockLabel: {
-    fontSize: 10,
-    color: '#6b7280',
-    fontWeight: '500',
-  },
-  stockValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#111827',
-  },
   priceGrid: {
     flexDirection: 'row',
     gap: 5,
@@ -1431,6 +1520,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
     borderRadius: 5,
     padding: 5,
+  },
+  priceWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   priceLabel: {
     fontSize: 8,
@@ -1601,6 +1695,9 @@ const styles = StyleSheet.create({
   formCol50: {
     flex: 0.5,
   },
+  formCol25: {
+    flex: 0.25,
+  },
   formCol60: {
     flex: 0.6,
   },
@@ -1609,6 +1706,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#6b7280',
     marginBottom: 4,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  conversionRateHint: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#3b82f6',
+    marginTop: 3,
+  },
+  conversionRateText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#3b82f6',
   },
   formInput: {
     backgroundColor: '#f9fafb',
@@ -1867,6 +1981,49 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
+  detailStockContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  detailStockBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#eff6ff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  detailStockLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#1e40af',
+  },
+  detailStockValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
+  },
+  detailStockMinBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#fef3c7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+  },
+  detailStockMinLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#b45309',
+  },
+  detailStockMinValue: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#b45309',
+  },
   detailPriceGrid: {
     flexDirection: 'row',
     gap: 8,
@@ -1876,6 +2033,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
     padding: 8,
     borderRadius: 6,
+  },
+  detailPriceWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   detailPriceLabel: {
     fontSize: 10,
@@ -1961,6 +2123,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#6b7280',
+  },
+  loadHistoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 12,
+    marginTop: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  loadHistoryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 13,
   },
   detailEmptyLogs: {
     alignItems: 'center',

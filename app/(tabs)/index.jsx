@@ -128,32 +128,7 @@ export default function DashboardScreen() {
       }
       showsVerticalScrollIndicator={false}
     >
-      {/* Welcome Section with Modern Background */}
-      <Animated.View 
-        style={[
-          styles.welcomeSection,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
-        <View style={styles.welcomeGradient}>
-          <View style={styles.welcomeContent}>
-            <View>
-              <Text style={styles.welcomeText}>Selamat Datang,</Text>
-              <Text style={styles.userName}>{session?.user?.full_name || session?.user?.username || 'User'}</Text>
-              <View style={styles.roleBadge}>
-                <MaterialCommunityIcons name="shield-account" size={14} color="#fff" />
-                <Text style={styles.roleText}>{session?.user?.role || 'staff'}</Text>
-              </View>
-            </View>
-            <View style={styles.avatarContainer}>
-              <MaterialCommunityIcons name="account-circle" size={56} color="rgba(255,255,255,0.9)" />
-            </View>
-          </View>
-        </View>
-      </Animated.View>
+      {/* Welcome Section moved to Profile Page */}
 
       {/* Quick Action Buttons - 2x2 Grid */}
       <Animated.View 
