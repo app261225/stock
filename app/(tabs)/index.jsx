@@ -234,7 +234,7 @@ export default function DashboardScreen() {
         {/* Activity Today - 2x2 Compact Boxes */}
         <View style={[styles.stockStatusGrid, { marginTop: 12 }]}>
           {/* IN Today (click -> Log filter IN) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'in' } })} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'in' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#dcfce7' }]}>
               <MaterialCommunityIcons name="package-down" size={20} color="#16a34a" />
             </View>
@@ -245,7 +245,7 @@ export default function DashboardScreen() {
           </TouchableOpacity>
 
           {/* OUT Today (click -> Log filter OUT) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'out' } })} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'out' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#fee2e2' }]}>
               <MaterialCommunityIcons name="package-up" size={20} color="#ef4444" />
             </View>
@@ -256,7 +256,7 @@ export default function DashboardScreen() {
           </TouchableOpacity>
 
           {/* Total IN (click -> Log filter IN) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'in' } })} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'in' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#e0e7ff' }]}>
               <MaterialCommunityIcons name="plus" size={20} color="#4f46e5" />
             </View>
@@ -267,7 +267,7 @@ export default function DashboardScreen() {
           </TouchableOpacity>
 
           {/* Total OUT (click -> Log filter OUT) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'log', params: { filter: 'out' } })} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'out' } })} activeOpacity={0.7}>
             <View style={[styles.compactStatIcon, { backgroundColor: '#fce7f3' }]}>
               <MaterialCommunityIcons name="minus" size={20} color="#ec4899" />
             </View>

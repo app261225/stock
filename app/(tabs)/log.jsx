@@ -17,16 +17,25 @@ import stockLogService from '../../services/stockLogService';
 
 export default function LogScreen() {
   const { session } = useSession();
+  const route = useRoute();
 
   // Data state
   const [allLogs, setAllLogs] = useState([]);
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Filter & Search state
-  const route = useRoute();
-  const [filter, setFilter] = useState(route?.params?.filter || 'all');
+  // Filter & Search state - start with 'all'
+  const [filter, setFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Apply filter from dashboard route params when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (route.params?.filter) {
+        setFilter(route.params.filter);
+      }
+    }, [route.params?.filter])
+  );
 
   // Load initial data
   useEffect(() => {
