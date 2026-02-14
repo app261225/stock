@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useSession } from '../contexts/AuthContext';
+import { ConfigProvider } from '../contexts/ConfigContext';
 
 function RootNavigator() {
   const { session } = useSession();
@@ -21,7 +22,9 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <RootNavigator />
+        <ConfigProvider>
+          <RootNavigator />
+        </ConfigProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

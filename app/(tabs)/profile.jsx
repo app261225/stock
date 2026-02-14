@@ -1,113 +1,28 @@
 import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, TextInput } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSession } from '../../contexts/AuthContext';
+import { useConfig } from '../../contexts/ConfigContext';
 import configService from '../../services/configService';
 import { useState, useRef, useEffect } from 'react';
 
 export default function ProfileScreen() {
   const { session, signOut } = useSession();
+  const { jpyToIdr, setJpyToIdr, isLoadingConfig } = useConfig();
   
-  // Simple states - keep it minimal
+  // Local editing state - hanya untuk input form
   const [jpyValue, setJpyValue] = useState('0');
   const [savedJpyValue, setSavedJpyValue] = useState('0');
-  const [realtimeJpyValue, setRealtimeJpyValue] = useState('0'); // Nilai realtime dari server
-  const [loadingConfig, setLoadingConfig] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   
   const jpyInputRef = useRef(null);
-  const unsubscribeRef = useRef(null);
   
   const isJpyChanged = jpyValue !== savedJpyValue;
 
-  // Load initial config on mount
+  // Sync dengan context value
   useEffect(() => {
-    loadJpyConfig();
-    setupRealtimeListener();
-
-    return () => {
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-      }
-    };
-  }, []);
-
-  const loadJpyConfig = async () => {
-    try {
-      setLoadingConfig(true);
-      const value = await configService.get('jpy_to_idr');
-      if (value != null) {
-        setJpyValue(value);
-        setSavedJpyValue(value);
-        setRealtimeJpyValue(value);
-        console.log('[Profile] Config loaded:', value);
-      }
-    } catch (error) {
-      console.error('Load JPY config error:', error);
-    } finally {
-      setLoadingConfig(false);
-    }
-  };
-
-  const setupRealtimeListener = () => {
-    try {
-      const unsubscribe = configService.subscribeToConfig('jpy_to_idr', (updateData) => {
-        const remoteValue = updateData.value;
-        
-        console.log('[Profile] 🔄 Realtime update:', {
-          remoteValue,
-          currentEditValue: jpyValue,
-          hasChanges: isJpyChanged,
-        });
-
-        // Jika user sedang editing dan ada update dari user lain
-        if (isJpyChanged && jpyValue !== remoteValue) {
-          // Batalkan editing dan update ke nilai terbaru
-          console.log('[Profile] ⚠️ CONFLICT: Cancelling local changes');
-          setJpyValue(remoteValue);
-          setSavedJpyValue(remoteValue);
-          setRealtimeJpyValue(remoteValue);
-          
-          Alert.alert(
-            '⚠️ Nilai Diperbarui',
-            `Nilai telah diubah pengguna lain menjadi: ${remoteValue} IDR\n\nPerubahan Anda dibatalkan.`,
-            [{ text: 'OK' }]
-          );
-        } else {
-          // Update normal - tidak ada conflict
-          console.log('[Profile] ✅ Syncing:', remoteValue);
-          setRealtimeJpyValue(remoteValue);
-          setJpyValue(remoteValue);
-          setSavedJpyValue(remoteValue);
-        }
-      });
-      
-      unsubscribeRef.current = unsubscribe;
-    } catch (error) {
-      console.error('Setup realtime listener error:', error);
-    }
-  };
-
-  const getRoleStyle = (role) => {
-    switch(role?.toLowerCase()) {
-      case 'super_admin':
-        return {
-          backgroundColor: '#7c3aed',
-          icon: 'shield-crown',
-        };
-      case 'staff':
-        return {
-          backgroundColor: '#0ea5e9',
-          icon: 'briefcase',
-        };
-      default:
-        return {
-          backgroundColor: '#2563eb',
-          icon: 'account',
-        };
-    }
-  };
-
-  const roleStyle = getRoleStyle(session?.user?.role);
+    setJpyValue(jpyToIdr);
+    setSavedJpyValue(jpyToIdr);
+  }, [jpyToIdr]);
 
   const handleSaveJpy = async () => {
     try {
@@ -121,7 +36,7 @@ export default function ProfileScreen() {
       );
       
       setSavedJpyValue(formattedValue);
-      setRealtimeJpyValue(formattedValue);
+      setJpyToIdr(formattedValue); // Update context
       
       Alert.alert('✅ Berhasil', `Nilai ¥ ke IDR: ${formattedValue} (Berlaku untuk semua pengguna)`);
       console.log('[Profile] Saved:', formattedValue);
@@ -160,6 +75,28 @@ export default function ProfileScreen() {
     if (filtered.split('.').length > 2) return;
     setJpyValue(filtered);
   };
+
+  const getRoleStyle = (role) => {
+    switch(role?.toLowerCase()) {
+      case 'super_admin':
+        return {
+          backgroundColor: '#7c3aed',
+          icon: 'shield-crown',
+        };
+      case 'staff':
+        return {
+          backgroundColor: '#0ea5e9',
+          icon: 'briefcase',
+        };
+      default:
+        return {
+          backgroundColor: '#2563eb',
+          icon: 'account',
+        };
+    }
+  };
+
+  const roleStyle = getRoleStyle(session?.user?.role);
 
   const handleLogout = () => {
     Alert.alert(
@@ -253,7 +190,7 @@ export default function ProfileScreen() {
               <Text style={styles.realtimeDesc}>Kurs Yen Jepang ke Rupiah</Text>
             </View>
             <View style={styles.realtimeValue}>
-              <Text style={styles.realtimeAmount}>{realtimeJpyValue || '0'}</Text>
+              <Text style={styles.realtimeAmount}>{jpyToIdr || '0'}</Text>
               <Text style={styles.realtimeCurrency}>IDR</Text>
             </View>
           </View>

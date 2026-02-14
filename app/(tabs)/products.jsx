@@ -4,12 +4,13 @@ import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSession } from '../../contexts/AuthContext';
+import { useConfig } from '../../contexts/ConfigContext';
 import productService from '../../services/productService';
 import stockLogService from '../../services/stockLogService';
-import configService from '../../services/configService';
 
 export default function ProductsScreen() {
   const { session } = useSession();
+  const { jpyToIdr } = useConfig(); // Get realtime currency dari ConfigContext
   const route = useRoute();
   const [products, setProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
@@ -19,8 +20,6 @@ export default function ProductsScreen() {
   const [filter, setFilter] = useState('all');
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [jpyRate, setJpyRate] = useState(0);
-  const [loadingJpyRate, setLoadingJpyRate] = useState(true);
   
   // Add product modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -57,8 +56,10 @@ export default function ProductsScreen() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editFormData, setEditFormData] = useState({
     nama_produk: '',
+    harga_modal_non_rp: '',
     harga_modal_rp: '',
     harga_jual_rp: '',
+    stock: '',
     min_stock: '',
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -69,7 +70,6 @@ export default function ProductsScreen() {
 
   useEffect(() => {
     loadProducts();
-    loadJpyRate();
     
     // Keyboard listeners
     const keyboardDidShowListener = Keyboard.addListener(
@@ -87,19 +87,13 @@ export default function ProductsScreen() {
     };
   }, []);
 
-  const loadJpyRate = async () => {
-    try {
-      setLoadingJpyRate(true);
-      const rate = await configService.get('jpy_to_idr');
-      if (rate) {
-        setJpyRate(parseFloat(rate));
-      }
-    } catch (error) {
-      console.error('Load JPY rate error:', error);
-    } finally {
-      setLoadingJpyRate(false);
+  // Auto-filter when jpyToIdr changes (realtime currency update)
+  useEffect(() => {
+    if (products.length > 0) {
+      applyFilter();
+      console.log('[Products] Currency updated to:', jpyToIdr);
     }
-  };
+  }, [jpyToIdr, products, filter, searchQuery]);
 
   // Apply filter from route params when navigating from dashboard
   useEffect(() => {
@@ -111,6 +105,42 @@ export default function ProductsScreen() {
   useEffect(() => {
     applyFilter();
   }, [products, filter, searchQuery]);
+
+  // Recalculate harga_modal_rp in Add Modal when jpyToIdr changes
+  useEffect(() => {
+    if (showAddModal && addFormData.harga_modal_non_rp) {
+      const parseValue = addFormData.harga_modal_non_rp.replace(/\./g, '').replace(',', '.');
+      if (parseValue && jpyToIdr > 0) {
+        const yen = parseFloat(parseValue);
+        if (!isNaN(yen)) {
+          const newRp = Math.round(yen * parseFloat(jpyToIdr)).toString();
+          setAddFormData(prev => ({
+            ...prev,
+            harga_modal_rp: newRp,
+          }));
+          console.log('[AddModal] Currency updated - yen:', yen, 'new RP:', newRp);
+        }
+      }
+    }
+  }, [jpyToIdr, showAddModal]);
+
+  // Recalculate harga_modal_rp in Edit Modal when jpyToIdr changes
+  useEffect(() => {
+    if (showEditModal && editFormData.harga_modal_non_rp) {
+      const parseValue = editFormData.harga_modal_non_rp.replace(/\./g, '').replace(',', '.');
+      if (parseValue && jpyToIdr > 0) {
+        const yen = parseFloat(parseValue);
+        if (!isNaN(yen)) {
+          const newRp = Math.round(yen * parseFloat(jpyToIdr)).toString();
+          setEditFormData(prev => ({
+            ...prev,
+            harga_modal_rp: newRp,
+          }));
+          console.log('[EditModal] Currency updated - yen:', yen, 'new RP:', newRp);
+        }
+      }
+    }
+  }, [jpyToIdr, showEditModal]);
 
   const loadProducts = async () => {
     try {
@@ -168,6 +198,10 @@ export default function ProductsScreen() {
       );
     }
 
+    // Create new objects to force FlatList re-render when jpyToIdr changes
+    // This ensures price displays update in real-time
+    filtered = filtered.map(p => ({ ...p }));
+
     setFilteredProducts(filtered);
   };
 
@@ -203,10 +237,10 @@ export default function ProductsScreen() {
     let parseValue = formattedValue.replace(/\./g, '').replace(',', '.');
     
     let conversionValue = '';
-    if (parseValue && jpyRate > 0) {
+    if (parseValue && jpyToIdr > 0) {
       const yen = parseFloat(parseValue);
       if (!isNaN(yen)) {
-        conversionValue = Math.round(yen * jpyRate).toString();
+        conversionValue = Math.round(yen * parseFloat(jpyToIdr)).toString();
       }
     }
     
@@ -377,8 +411,10 @@ export default function ProductsScreen() {
     if (!detailProduct) return;
     setEditFormData({
       nama_produk: detailProduct.nama_produk,
+      harga_modal_non_rp: '',
       harga_modal_rp: detailProduct.harga_modal_rp.toString(),
       harga_jual_rp: detailProduct.harga_jual_rp.toString(),
+      stock: detailProduct.stock.toString(),
       min_stock: detailProduct.min_stock.toString(),
     });
     setShowEditModal(true);
@@ -672,6 +708,7 @@ export default function ProductsScreen() {
           renderItem={renderProduct}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
+          extraData={jpyToIdr}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#3b82f6']} />
           }
@@ -753,8 +790,8 @@ export default function ProductsScreen() {
                           keyboardType="decimal-pad"
                         />
                       </View>
-                      {!loadingJpyRate && jpyRate > 0 && (
-                        <Text style={styles.conversionRateHint}>1¥ = {jpyRate.toLocaleString('id-ID')}</Text>
+                      {jpyToIdr && (
+                        <Text style={styles.conversionRateHint}>1¥ = {parseFloat(jpyToIdr).toLocaleString('id-ID')}</Text>
                       )}
                     </View>
                     <View style={styles.formCol50}>
@@ -1159,34 +1196,77 @@ export default function ProductsScreen() {
               {/* Form Content */}
               <ScrollView style={styles.alertScrollContent}>
                 <View style={styles.alertContentScrollable}>
-                  {/* Nama Produk */}
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Nama Produk</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="Nama produk"
-                      value={editFormData.nama_produk}
-                      onChangeText={(val) => setEditFormData({...editFormData, nama_produk: val})}
-                    />
+                  {/* SKU + Nama Produk */}
+                  <View style={styles.formRow}>
+                    <View style={styles.formCol40}>
+                      <Text style={styles.formLabel}>SKU</Text>
+                      <TextInput
+                        style={[styles.formInput, styles.inputReadonly]}
+                        placeholder="ABC123"
+                        value={detailProduct?.sku || ''}
+                        editable={false}
+                      />
+                    </View>
+                    <View style={styles.formCol60}>
+                      <Text style={styles.formLabel}>Nama Produk</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="Nama produk"
+                        value={editFormData.nama_produk}
+                        onChangeText={(val) => setEditFormData({...editFormData, nama_produk: val})}
+                      />
+                    </View>
                   </View>
 
-                  {/* Harga Modal + Jual */}
+                  {/* Harga Modal Yen (¥) + RP - Perfect Alignment */}
                   <View style={styles.formRow}>
                     <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Modal (Rp)</Text>
+                      <Text style={styles.formLabel}>Modal (¥)</Text>
                       <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>Rp</Text>
+                        <Text style={styles.inputPrefix}>¥</Text>
                         <TextInput
                           style={[styles.formInput, styles.inputPrefixed]}
                           placeholder="0"
-                          value={editFormData.harga_modal_rp}
-                          onChangeText={(val) => setEditFormData({...editFormData, harga_modal_rp: val.replace(/[^0-9]/g, '')})}
-                          keyboardType="numeric"
+                          value={editFormData.harga_modal_non_rp || ''}
+                          onChangeText={(val) => {
+                            const parseValue = val.replace(/\./g, '').replace(',', '.');
+                            let conversionValue = '';
+                            if (parseValue && jpyToIdr > 0) {
+                              const yen = parseFloat(parseValue);
+                              if (!isNaN(yen)) {
+                                conversionValue = Math.round(yen * parseFloat(jpyToIdr)).toString();
+                              }
+                            }
+                            setEditFormData({
+                              ...editFormData,
+                              harga_modal_non_rp: val,
+                              harga_modal_rp: conversionValue,
+                            });
+                          }}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                      {jpyToIdr && (
+                        <Text style={styles.conversionRateHint}>1¥ = {parseFloat(jpyToIdr).toLocaleString('id-ID')}</Text>
+                      )}
+                    </View>
+                    <View style={styles.formCol50}>
+                      <Text style={styles.formLabel}>Modal (RP)</Text>
+                      <View style={styles.inputWithPrefix}>
+                        <Text style={styles.inputPrefix}>Rp</Text>
+                        <TextInput
+                          style={[styles.formInput, styles.inputPrefixed, styles.inputReadonly]}
+                          value={editFormData.harga_modal_rp ? displayNumberWithSeparator(editFormData.harga_modal_rp) : ''}
+                          editable={false}
                         />
                       </View>
                     </View>
+                  </View>
+
+                  {/* Harga Jual, Stock Awal, Min Stock - 3 Columns */}
+                  <View style={styles.formRow}>
                     <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Jual (Rp)</Text>
+                      <Text style={styles.formLabel}>Harga Jual (RP)</Text>
                       <View style={styles.inputWithPrefix}>
                         <Text style={styles.inputPrefix}>Rp</Text>
                         <TextInput
@@ -1198,43 +1278,27 @@ export default function ProductsScreen() {
                         />
                       </View>
                     </View>
-                  </View>
-
-                  {/* Min Stock */}
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Min Stock</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="0"
-                      value={editFormData.min_stock}
-                      onChangeText={(val) => setEditFormData({...editFormData, min_stock: val.replace(/[^0-9]/g, '')})}
-                      keyboardType="numeric"
-                    />
-                  </View>
-
-                  {/* Profit Display */}
-                  {editFormData.harga_modal_rp && editFormData.harga_jual_rp && (
-                    <View style={styles.profitDisplay}>
-                      <MaterialCommunityIcons 
-                        name={parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? 'trending-up' : 'trending-down'} 
-                        size={16} 
-                        color={parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? '#16a34a' : '#ef4444'} 
+                    <View style={styles.formCol25}>
+                      <Text style={styles.formLabel}>Stock Awal</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="0"
+                        value={editFormData.stock || ''}
+                        onChangeText={(val) => setEditFormData({...editFormData, stock: val.replace(/[^0-9]/g, '')})}
+                        keyboardType="numeric"
                       />
-                      <Text style={styles.profitDisplayLabel}>Profit:</Text>
-                      <Text style={[
-                        styles.profitDisplayValue,
-                        { color: parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? '#16a34a' : '#ef4444' }
-                      ]}>
-                        {formatCurrency(parseInt(editFormData.harga_jual_rp || 0) - parseInt(editFormData.harga_modal_rp || 0))}
-                      </Text>
-                      <Text style={[
-                        styles.profitDisplayPercent,
-                        { color: parseInt(editFormData.harga_jual_rp) >= parseInt(editFormData.harga_modal_rp) ? '#16a34a' : '#ef4444' }
-                      ]}>
-                        ({(((parseInt(editFormData.harga_jual_rp || 0) - parseInt(editFormData.harga_modal_rp || 0)) / parseInt(editFormData.harga_modal_rp || 1)) * 100).toFixed(1)}%)
-                      </Text>
                     </View>
-                  )}
+                    <View style={styles.formCol25}>
+                      <Text style={styles.formLabel}>Min Stock</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="0"
+                        value={editFormData.min_stock}
+                        onChangeText={(val) => setEditFormData({...editFormData, min_stock: val.replace(/[^0-9]/g, '')})}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
                 </View>
               </ScrollView>
 
