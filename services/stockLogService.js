@@ -601,7 +601,7 @@ const stockLogService = {
 
       const { data, error } = await supabase
         .from('stock_logs')
-        .select('type, quantity')
+        .select('type, quantity, created_at')
         .gte('created_at', today.toISOString());
 
       if (error) throw error;
@@ -611,17 +611,53 @@ const stockLogService = {
         total_out: 0,
         count_in: 0,
         count_out: 0,
+        last_in: null,
+        last_out: null,
       };
 
       data.forEach(log => {
+        const ts = log.created_at ? new Date(log.created_at).toISOString() : null;
         if (log.type === 'IN') {
           summary.total_in += log.quantity;
           summary.count_in += 1;
+          if (ts && (!summary.last_in || ts > summary.last_in)) summary.last_in = ts;
         } else if (log.type === 'OUT') {
           summary.total_out += log.quantity;
           summary.count_out += 1;
+          if (ts && (!summary.last_out || ts > summary.last_out)) summary.last_out = ts;
         }
       });
+
+      // Fallback: fetch latest per type if missing
+      if ((!summary.last_in || !summary.last_out) && (summary.count_in > 0 || summary.count_out > 0)) {
+        try {
+          if (!summary.last_in && summary.count_in > 0) {
+            const { data: lastInRow, error: errIn } = await supabase
+              .from('stock_logs')
+              .select('created_at')
+              .gte('created_at', today.toISOString())
+              .eq('type', 'IN')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (!errIn && lastInRow?.created_at) summary.last_in = new Date(lastInRow.created_at).toISOString();
+          }
+
+          if (!summary.last_out && summary.count_out > 0) {
+            const { data: lastOutRow, error: errOut } = await supabase
+              .from('stock_logs')
+              .select('created_at')
+              .gte('created_at', today.toISOString())
+              .eq('type', 'OUT')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (!errOut && lastOutRow?.created_at) summary.last_out = new Date(lastOutRow.created_at).toISOString();
+          }
+        } catch (e) {
+          // ignore fallback errors
+        }
+      }
 
       return summary;
     } catch (error) {
@@ -635,6 +671,35 @@ const stockLogService = {
    * @returns {Promise<{totalIn: number, totalOut: number, transactionCount: number}>}
    */
   async getTodayStats() {
+
+            // Fallback: if last_in/last_out still null but there are counts, fetch latest per type
+            if ((!summary.last_in || !summary.last_out) && (summary.count_in > 0 || summary.count_out > 0)) {
+              try {
+                if (!summary.last_in && summary.count_in > 0) {
+                  const { data: lastInRow, error: errIn } = await supabase
+                    .from('stock_logs')
+                    .select('created_at')
+                    .eq('type', 'IN')
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                  if (!errIn && lastInRow?.created_at) summary.last_in = new Date(lastInRow.created_at).toISOString();
+                }
+
+                if (!summary.last_out && summary.count_out > 0) {
+                  const { data: lastOutRow, error: errOut } = await supabase
+                    .from('stock_logs')
+                    .select('created_at')
+                    .eq('type', 'OUT')
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                  if (!errOut && lastOutRow?.created_at) summary.last_out = new Date(lastOutRow.created_at).toISOString();
+                }
+              } catch (e) {
+                // ignore fallback errors, we already have counts
+              }
+            }
     try {
       const summary = await this.getTodaySummary();
       
@@ -678,6 +743,77 @@ const stockLogService = {
     } catch (error) {
       console.error('Get all-time stats error:', error);
       throw new Error(error.message || 'Gagal memuat statistik total');
+    }
+  },
+
+  /**
+   * Get all-time stock movements summary including counts
+   * @returns {Promise<{total_in: number, total_out: number, count_in: number, count_out: number}>}
+   */
+  async getAllTimeSummary() {
+    try {
+      // include created_at so we can determine the last timestamp per type
+      const { data, error } = await supabase
+        .from('stock_logs')
+        .select('type, quantity, created_at');
+
+      if (error) throw error;
+
+      const summary = {
+        total_in: 0,
+        total_out: 0,
+        count_in: 0,
+        count_out: 0,
+        last_in: null,
+        last_out: null,
+      };
+
+      data.forEach(log => {
+        const ts = log.created_at ? new Date(log.created_at).toISOString() : null;
+        if (log.type === 'IN') {
+          summary.total_in += log.quantity;
+          summary.count_in += 1;
+          if (ts && (!summary.last_in || ts > summary.last_in)) summary.last_in = ts;
+        } else if (log.type === 'OUT') {
+          summary.total_out += log.quantity;
+          summary.count_out += 1;
+          if (ts && (!summary.last_out || ts > summary.last_out)) summary.last_out = ts;
+        }
+      });
+
+      // Fallback: if for some reason we didn't capture last_in/last_out (e.g. nulls), query latest per type
+      if ((!summary.last_in || !summary.last_out) && (summary.count_in > 0 || summary.count_out > 0)) {
+        try {
+          if (!summary.last_in && summary.count_in > 0) {
+            const { data: lastInRow, error: errIn } = await supabase
+              .from('stock_logs')
+              .select('created_at')
+              .eq('type', 'IN')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (!errIn && lastInRow?.created_at) summary.last_in = new Date(lastInRow.created_at).toISOString();
+          }
+
+          if (!summary.last_out && summary.count_out > 0) {
+            const { data: lastOutRow, error: errOut } = await supabase
+              .from('stock_logs')
+              .select('created_at')
+              .eq('type', 'OUT')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (!errOut && lastOutRow?.created_at) summary.last_out = new Date(lastOutRow.created_at).toISOString();
+          }
+        } catch (e) {
+          // ignore fallback errors
+        }
+      }
+
+      return summary;
+    } catch (error) {
+      console.error('Get all-time summary error:', error);
+      throw new Error(error.message || 'Gagal memuat ringkasan total');
     }
   },
 

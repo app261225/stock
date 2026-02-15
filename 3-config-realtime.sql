@@ -1,5 +1,4 @@
 -- 1. Enable REPLICA IDENTITY FULL agar Realtime bisa mengirimkan data lama & baru
-ALTER TABLE public.config REPLICA IDENTITY FULL;
 
 -- 2. Tambahkan ke publikasi Realtime (Langkah ini krusial jika kamu menggunakan sistem publikasi manual)
 -- Jika kamu mengaktifkan via Dashboard, langkah ini biasanya otomatis.

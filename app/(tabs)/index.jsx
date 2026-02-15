@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, ActivityIndicator, Animated, Dimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, ActivityIndicator, Animated, Dimensions, Alert } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSession } from '../../contexts/AuthContext';
@@ -22,10 +22,14 @@ export default function DashboardScreen() {
     totalIn: 0,
     totalOut: 0,
     transactionCount: 0,
+    countIn: 0,
+    countOut: 0,
   });
   const [allTimeStats, setAllTimeStats] = useState({
     totalIn: 0,
     totalOut: 0,
+    countIn: 0,
+    countOut: 0,
   });
   const [stockValue, setStockValue] = useState({
     total_modal: 0,
@@ -73,18 +77,33 @@ export default function DashboardScreen() {
     try {
       setLoading(true);
       
-      // Load all data in parallel
-      const [stockStats, todayStatsData, valueData, allTimeStatsData] = await Promise.all([
+      // Load all data in parallel (use summaries that include counts)
+      const [stockStats, todaySummary, valueData, allTimeSummary] = await Promise.all([
         productService.getStockStats(),
-        stockLogService.getTodayStats(),
+        stockLogService.getTodaySummary(),
         productService.getStockValue(),
-        stockLogService.getAllTimeStats(),
+        stockLogService.getAllTimeSummary(),
       ]);
 
       setStats(stockStats);
-      setTodayStats(todayStatsData);
+      console.log('todaySummary:', todaySummary);
+      console.log('allTimeSummary:', allTimeSummary);
+      setTodayStats({
+        totalIn: todaySummary.total_in,
+        totalOut: todaySummary.total_out,
+        transactionCount: (todaySummary.count_in || 0) + (todaySummary.count_out || 0),
+        countIn: todaySummary.count_in || 0,
+        countOut: todaySummary.count_out || 0,
+      });
       setStockValue(valueData);
-      setAllTimeStats(allTimeStatsData);
+      setAllTimeStats({
+        totalIn: allTimeSummary.total_in || 0,
+        totalOut: allTimeSummary.total_out || 0,
+        countIn: allTimeSummary.count_in || 0,
+        countOut: allTimeSummary.count_out || 0,
+        lastIn: allTimeSummary.last_in || null,
+        lastOut: allTimeSummary.last_out || null,
+      });
     } catch (error) {
       console.error('Load dashboard data error:', error);
     } finally {
@@ -107,8 +126,42 @@ export default function DashboardScreen() {
     }).format(value);
   };
 
+  const formatStamp = (iso) => {
+    if (!iso) return '-';
+    try {
+      const d = new Date(iso);
+      const day = d.getDate();
+      const month = d.toLocaleDateString('id-ID', { month: 'short' });
+      const year = d.getFullYear();
+      const time = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      return `${time} • ${day} ${month} ${year}`;
+    } catch (e) {
+      return iso;
+    }
+  };
+
   const getStockPercentage = (current, total) => {
     return total > 0 ? (current / total) * 100 : 0;
+  };
+
+  const showInformation = () => {
+    Alert.alert(
+      'ℹ️ Informasi Dashboard',
+      'Selamat datang di Dashboard Inventory Management!\n\n' +
+      '📦 Status Stok:\n' +
+      '• Total: Semua produk dalam sistem\n' +
+      '• Aman: Stok mencukupi\n' +
+      '• Menipis: Stok mendekati batas minimum\n' +
+      '• Habis: Stok kosong\n\n' +
+      '📊 Aktivitas:\n' +
+      '• IN: Barang masuk\n' +
+      '• OUT: Barang keluar\n' +
+      '• Angka menunjukkan total quantity\n' +
+      '• Simbol × menunjukkan jumlah transaksi\n\n' +
+      '💡 Tips: Tap pada setiap card untuk melihat detail lebih lanjut!',
+      [{ text: 'Tutup', style: 'cancel' }],
+      { cancelable: true }
+    );
   };
 
   if (loading) {
@@ -131,7 +184,8 @@ export default function DashboardScreen() {
     >
       {/* Welcome Section moved to Profile Page */}
 
-      {/* Quick Action Buttons - 2x2 Grid */}
+      {/* Quick Action Buttons - hidden temporarily */}
+      {/*
       <Animated.View 
         style={[
           styles.section,
@@ -172,6 +226,7 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
       </Animated.View>
+      */}
 
       {/* Stock Status & Activity Cards - Compact */}
       <Animated.View 
@@ -184,97 +239,138 @@ export default function DashboardScreen() {
           }
         ]}
       >
-        {/* Status Stok Grid - 2x2 Compact Boxes */}
-        <View style={styles.stockStatusGrid}>
+        {/* Status Stok - Inline 4 Cards */}
+        <View style={styles.statusInlineContainer}>
           {/* Total */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'products', params: { filter: 'all' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#dbeafe' }]}>
-              <MaterialCommunityIcons name="package-variant" size={20} color="#2563eb" />
+          <TouchableOpacity 
+            style={[styles.statusInlineCard, { borderTopColor: '#2563eb' }]} 
+            onPress={() => router.push({ pathname: 'products', params: { filter: 'all' } })} 
+            activeOpacity={0.7}
+          >
+            <View style={[styles.statusInlineIconWrapper, { backgroundColor: '#dbeafe' }]}>
+              <MaterialCommunityIcons name="package-variant" size={22} color="#2563eb" />
             </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{stats.total}</Text>
-              <Text style={styles.compactStatLabel}>Total</Text>
-            </View>
+            <Text style={styles.statusInlineNumber}>{stats.total}</Text>
+            <Text style={styles.statusInlineLabel}>Total</Text>
           </TouchableOpacity>
 
           {/* Aman */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'products', params: { filter: 'aman' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#dcfce7' }]}>
-              <MaterialCommunityIcons name="check-circle" size={20} color="#16a34a" />
+          <TouchableOpacity 
+            style={[styles.statusInlineCard, { borderTopColor: '#16a34a' }]} 
+            onPress={() => router.push({ pathname: 'products', params: { filter: 'aman' } })} 
+            activeOpacity={0.7}
+          >
+            <View style={[styles.statusInlineIconWrapper, { backgroundColor: '#dcfce7' }]}>
+              <MaterialCommunityIcons name="check-circle" size={22} color="#16a34a" />
             </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{stats.healthy}</Text>
-              <Text style={styles.compactStatLabel}>Aman</Text>
-            </View>
+            <Text style={styles.statusInlineNumber}>{stats.healthy}</Text>
+            <Text style={styles.statusInlineLabel}>Aman</Text>
           </TouchableOpacity>
 
           {/* Menipis */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'products', params: { filter: 'menipis' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#fef3c7' }]}>
-              <MaterialCommunityIcons name="alert" size={20} color="#f59e0b" />
+          <TouchableOpacity 
+            style={[styles.statusInlineCard, { borderTopColor: '#f59e0b' }]} 
+            onPress={() => router.push({ pathname: 'products', params: { filter: 'menipis' } })} 
+            activeOpacity={0.7}
+          >
+            <View style={[styles.statusInlineIconWrapper, { backgroundColor: '#fef3c7' }]}>
+              <MaterialCommunityIcons name="alert" size={22} color="#f59e0b" />
             </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{stats.lowStock}</Text>
-              <Text style={styles.compactStatLabel}>Menipis</Text>
-            </View>
+            <Text style={styles.statusInlineNumber}>{stats.lowStock}</Text>
+            <Text style={styles.statusInlineLabel}>Menipis</Text>
           </TouchableOpacity>
 
           {/* Habis */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: 'products', params: { filter: 'habis' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#fee2e2' }]}>
-              <MaterialCommunityIcons name="close-circle" size={20} color="#ef4444" />
+          <TouchableOpacity 
+            style={[styles.statusInlineCard, { borderTopColor: '#ef4444' }]} 
+            onPress={() => router.push({ pathname: 'products', params: { filter: 'habis' } })} 
+            activeOpacity={0.7}
+          >
+            <View style={[styles.statusInlineIconWrapper, { backgroundColor: '#fee2e2' }]}>
+              <MaterialCommunityIcons name="close-circle" size={22} color="#ef4444" />
             </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{stats.outOfStock}</Text>
-              <Text style={styles.compactStatLabel}>Habis</Text>
-            </View>
+            <Text style={styles.statusInlineNumber}>{stats.outOfStock}</Text>
+            <Text style={styles.statusInlineLabel}>Habis</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Activity Today - 2x2 Compact Boxes */}
-        <View style={[styles.stockStatusGrid, { marginTop: 12 }]}>
+        {/* Information Button */}
+        <TouchableOpacity 
+          style={styles.infoButton} 
+          onPress={showInformation}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="information-outline" size={20} color="#2563eb" />
+          <Text style={styles.infoButtonText}>Informasi Dashboard</Text>
+          <MaterialCommunityIcons name="chevron-right" size={20} color="#9ca3af" />
+        </TouchableOpacity>
+
+        {/* Activity Cards - Enhanced Design */}
+        <View style={[styles.stockStatusGrid, { marginTop: 0 }]}>
           {/* IN Today (click -> Log filter IN) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'in' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#dcfce7' }]}>
-              <MaterialCommunityIcons name="package-down" size={20} color="#16a34a" />
-            </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{todayStats.totalIn}</Text>
-              <Text style={styles.compactStatLabel}>IN (Hari ini)</Text>
+          <TouchableOpacity style={[styles.compactStatBox, styles.activityCard]} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'in' } })} activeOpacity={0.7}>
+            <View style={styles.compactStatHeader}>
+              <View style={[styles.compactStatIcon, { backgroundColor: '#dcfce7' }]}>
+                <MaterialCommunityIcons name="package-down" size={22} color="#16a34a" />
+              </View>
+              <View style={styles.compactStatContent}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={styles.compactStatNumber}>{todayStats.totalIn}</Text>
+                  <Text style={styles.compactStatCount}>× {todayStats.countIn}</Text>
+                </View>
+                <Text style={styles.compactStatLabel}>IN (Hari ini)</Text>
+              </View>
             </View>
           </TouchableOpacity>
 
           {/* OUT Today (click -> Log filter OUT) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'out' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#fee2e2' }]}>
-              <MaterialCommunityIcons name="package-up" size={20} color="#ef4444" />
-            </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{todayStats.totalOut}</Text>
-              <Text style={styles.compactStatLabel}>OUT (Hari ini)</Text>
+          <TouchableOpacity style={[styles.compactStatBox, styles.activityCard]} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'out' } })} activeOpacity={0.7}>
+            <View style={styles.compactStatHeader}>
+              <View style={[styles.compactStatIcon, { backgroundColor: '#fee2e2' }]}>
+                <MaterialCommunityIcons name="package-up" size={22} color="#ef4444" />
+              </View>
+              <View style={styles.compactStatContent}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={styles.compactStatNumber}>{todayStats.totalOut}</Text>
+                  <Text style={styles.compactStatCount}>× {todayStats.countOut}</Text>
+                </View>
+                <Text style={styles.compactStatLabel}>OUT (Hari ini)</Text>
+              </View>
             </View>
           </TouchableOpacity>
 
           {/* Total IN (click -> Log filter IN) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'in' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#e0e7ff' }]}>
-              <MaterialCommunityIcons name="plus" size={20} color="#4f46e5" />
+          <TouchableOpacity style={[styles.compactStatBox, styles.activityCard]} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'in' } })} activeOpacity={0.7}>
+            <View style={styles.compactStatHeader}>
+              <View style={[styles.compactStatIcon, { backgroundColor: '#e0e7ff' }]}>
+                <MaterialCommunityIcons name="plus" size={22} color="#4f46e5" />
+              </View>
+              <View style={styles.compactStatContent}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={styles.compactStatNumber}>{allTimeStats.totalIn}</Text>
+                  <Text style={styles.compactStatCount}>× {allTimeStats.countIn}</Text>
+                </View>
+                <Text style={styles.compactStatLabel}>Total IN</Text>
+              </View>
             </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{allTimeStats.totalIn}</Text>
-              <Text style={styles.compactStatLabel}>Total IN</Text>
-            </View>
+            <Text style={styles.compactStatStampFull}>Last: {formatStamp(allTimeStats.lastIn)}</Text>
           </TouchableOpacity>
 
           {/* Total OUT (click -> Log filter OUT) */}
-          <TouchableOpacity style={styles.compactStatBox} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'out' } })} activeOpacity={0.7}>
-            <View style={[styles.compactStatIcon, { backgroundColor: '#fce7f3' }]}>
-              <MaterialCommunityIcons name="minus" size={20} color="#ec4899" />
+          <TouchableOpacity style={[styles.compactStatBox, styles.activityCard]} onPress={() => router.push({ pathname: '/(tabs)/log', params: { filter: 'out' } })} activeOpacity={0.7}>
+            <View style={styles.compactStatHeader}>
+              <View style={[styles.compactStatIcon, { backgroundColor: '#fce7f3' }]}>
+                <MaterialCommunityIcons name="minus" size={22} color="#ec4899" />
+              </View>
+              <View style={styles.compactStatContent}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={styles.compactStatNumber}>{allTimeStats.totalOut}</Text>
+                  <Text style={styles.compactStatCount}>× {allTimeStats.countOut}</Text>
+                </View>
+                <Text style={styles.compactStatLabel}>Total OUT</Text>
+              </View>
             </View>
-            <View style={styles.compactStatContent}>
-              <Text style={styles.compactStatNumber}>{allTimeStats.totalOut}</Text>
-              <Text style={styles.compactStatLabel}>Total OUT</Text>
-            </View>
+            <Text style={styles.compactStatStampFull}>Last: {formatStamp(allTimeStats.lastOut)}</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -289,7 +385,7 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#f3f4f6' 
+    backgroundColor: '#f8f9fa' 
   },
   loadingContainer: { 
     flex: 1, 
@@ -396,47 +492,145 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 16,
   },
-  // Stock Status Grid - Compact Style
+  
+  // Status Inline - Modern 4 Cards in 1 Row
+  statusInlineContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  statusInlineCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderTopWidth: 3,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statusInlineIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statusInlineNumber: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.5,
+    marginBottom: 2,
+  },
+  statusInlineLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // Information Button
+  infoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  infoButtonText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563eb',
+    marginLeft: 8,
+  },
+  
+  // Stock Status Grid - Compact Style with Dynamic Height
   stockStatusGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
   compactStatBox: {
-    width: '48%',
+    minWidth: 140,
+    minHeight: 70,
+    flexBasis: '48%',
+    flexGrow: 1,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  activityCard: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#e5e7eb',
+  },
+  compactStatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
   },
   compactStatIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 12,
   },
   compactStatContent: {
     flex: 1,
   },
   compactStatNumber: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#111827',
-    lineHeight: 22,
+    lineHeight: 24,
+    letterSpacing: -0.5,
+  },
+  compactStatCount: {
+    fontSize: 13,
+    color: '#9ca3af',
+    fontWeight: '600',
   },
   compactStatLabel: {
     fontSize: 11,
     color: '#6b7280',
-    fontWeight: '500',
+    fontWeight: '600',
+    marginTop: 3,
+    letterSpacing: 0.3,
+  },
+  compactStatStamp: {
+    fontSize: 10,
+    color: '#9ca3af',
     marginTop: 2,
+  },
+  compactStatStampFull: {
+    fontSize: 9,
+    color: '#9ca3af',
+    marginTop: 10,
+    fontWeight: '500',
   },
 
   // Quick Action Buttons

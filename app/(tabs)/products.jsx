@@ -7,6 +7,8 @@ import { useSession } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import productService from '../../services/productService';
 import stockLogService from '../../services/stockLogService';
+import StockActionModal from '../components/StockActionModal';
+import AddEditProductModal from '../components/AddEditProductModal';
 
 export default function ProductsScreen() {
   const { session } = useSession();
@@ -21,30 +23,15 @@ export default function ProductsScreen() {
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   
-  // Add product modal
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [addFormData, setAddFormData] = useState({
-    sku: '',
-    nama_produk: '',
-    harga_modal_non_rp: '',
-    harga_modal_rp: '',
-    harga_jual_rp: '',
-    min_stock: '',
-    stock: '',
-  });
-  const [addSubmitting, setAddSubmitting] = useState(false);
+  // Add/Edit product modal ref (uncontrolled for zero-lag)
+  const addEditModalRef = useRef(null);
   
-  // Stock action modal
-  const [showStockModal, setShowStockModal] = useState(false);
-  const [stockAction, setStockAction] = useState(null);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [stockQuantity, setStockQuantity] = useState('');
-  const [stockNotes, setStockNotes] = useState('');
-  const [stockSubmitting, setStockSubmitting] = useState(false);
+  // Stock action modal - Gunakan Ref untuk zero lag
+  const stockModalRef = useRef(null);
   
-  // Product detail modal
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [detailProduct, setDetailProduct] = useState(null);
+  // Stock history modal state (opened from edit modal)
+  const [historyProduct, setHistoryProduct] = useState(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [stockLogs, setStockLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsRequested, setLogsRequested] = useState(false);
@@ -52,17 +39,7 @@ export default function ProductsScreen() {
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [totalLogs, setTotalLogs] = useState(0);
   
-  // Edit product modal
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editFormData, setEditFormData] = useState({
-    nama_produk: '',
-    harga_modal_non_rp: '',
-    harga_modal_rp: '',
-    harga_jual_rp: '',
-    stock: '',
-    min_stock: '',
-  });
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  // (Add/Edit now handled by AddEditProductModal via ref)
   
   const LOGS_PER_PAGE = 10;
   
@@ -106,41 +83,7 @@ export default function ProductsScreen() {
     applyFilter();
   }, [products, filter, searchQuery]);
 
-  // Recalculate harga_modal_rp in Add Modal when jpyToIdr changes
-  useEffect(() => {
-    if (showAddModal && addFormData.harga_modal_non_rp) {
-      const parseValue = addFormData.harga_modal_non_rp.replace(/\./g, '').replace(',', '.');
-      if (parseValue && jpyToIdr > 0) {
-        const yen = parseFloat(parseValue);
-        if (!isNaN(yen)) {
-          const newRp = Math.round(yen * parseFloat(jpyToIdr)).toString();
-          setAddFormData(prev => ({
-            ...prev,
-            harga_modal_rp: newRp,
-          }));
-          console.log('[AddModal] Currency updated - yen:', yen, 'new RP:', newRp);
-        }
-      }
-    }
-  }, [jpyToIdr, showAddModal]);
-
-  // Recalculate harga_modal_rp in Edit Modal when jpyToIdr changes
-  useEffect(() => {
-    if (showEditModal && editFormData.harga_modal_non_rp) {
-      const parseValue = editFormData.harga_modal_non_rp.replace(/\./g, '').replace(',', '.');
-      if (parseValue && jpyToIdr > 0) {
-        const yen = parseFloat(parseValue);
-        if (!isNaN(yen)) {
-          const newRp = Math.round(yen * parseFloat(jpyToIdr)).toString();
-          setEditFormData(prev => ({
-            ...prev,
-            harga_modal_rp: newRp,
-          }));
-          console.log('[EditModal] Currency updated - yen:', yen, 'new RP:', newRp);
-        }
-      }
-    }
-  }, [jpyToIdr, showEditModal]);
+  // Add/Edit modal handles its own jpyToIdr updates
 
   const loadProducts = async () => {
     try {
@@ -222,270 +165,28 @@ export default function ProductsScreen() {
     }).format(value);
   };
 
-  const handleNonRpChange = (value) => {
-    // Allow digits, dot (thousand separator), and comma (decimal separator)
-    let formattedValue = value.replace(/[^0-9.,]/g, '');
-    
-    // Prevent multiple commas (decimal separator)
-    const commaParts = formattedValue.split(',');
-    if (commaParts.length > 2) return;
-    
-    // Prevent multiple decimals in decimal part
-    if (commaParts.length === 2 && commaParts[1].includes(',')) return;
-    
-    // Parse for calculation (convert . to empty, , to .)
-    let parseValue = formattedValue.replace(/\./g, '').replace(',', '.');
-    
-    let conversionValue = '';
-    if (parseValue && jpyToIdr > 0) {
-      const yen = parseFloat(parseValue);
-      if (!isNaN(yen)) {
-        conversionValue = Math.round(yen * parseFloat(jpyToIdr)).toString();
-      }
-    }
-    
-    setAddFormData({
-      ...addFormData,
-      harga_modal_non_rp: formattedValue,
-      harga_modal_rp: conversionValue,
-    });
-  };
+  // Number / currency helpers moved into AddEditProductModal
 
-  // Format number dengan thousand separator (. untuk ribuan, , untuk desimal jika ada)
-  const formatNumberWithSeparator = (value, allowDecimal = false) => {
-    // Remove non-numeric (except . and ,)
-    let cleaned = value.replace(/[^0-9.,]/g, '');
-    
-    if (!allowDecimal) {
-      // Remove all dots and commas for integer-only fields
-      cleaned = cleaned.replace(/[.,]/g, '');
-    } else {
-      // Allow . for thousands, , for decimals
-      const commaParts = cleaned.split(',');
-      if (commaParts.length > 2) return value; // Prevent multiple commas
-    }
-    
-    return cleaned;
-  };
-  
-  // Parse value with separator back to raw number
-  const parseNumberWithSeparator = (value) => {
-    // Remove thousand separator (.), replace decimal separator (,) with .
-    return parseFloat(value.replace(/\./g, '').replace(',', '.'));
-  };
-  
-  // Format raw number for display with thousand separator
-  const displayNumberWithSeparator = (value) => {
-    if (!value) return '';
-    const num = parseNumberWithSeparator(value);
-    if (isNaN(num)) return value;
-    return num.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  };
-
-  const handleHargaJualChange = (value) => {
-    const formatted = formatNumberWithSeparator(value, true);
-    setAddFormData({
-      ...addFormData,
-      harga_jual_rp: formatted,
-    });
-  };
-  
-  const handleStockChange = (value) => {
-    const formatted = formatNumberWithSeparator(value, false);
-    setAddFormData({
-      ...addFormData,
-      stock: formatted,
-    });
-  };
-  
-  const handleMinStockChange = (value) => {
-    const formatted = formatNumberWithSeparator(value, false);
-    setAddFormData({
-      ...addFormData,
-      min_stock: formatted,
-    });
-  };
-
-  const handleAddProduct = async () => {
-    const { sku, nama_produk, harga_modal_rp, harga_jual_rp, min_stock, stock } = addFormData;
-    
-    if (!sku.trim() || !nama_produk.trim() || !harga_modal_rp || !harga_jual_rp || !min_stock || !stock) {
-      Alert.alert('Error', 'Semua field harus diisi');
-      return;
-    }
-
-    setAddSubmitting(true);
-    try {
-      await productService.create({
-        sku: sku.trim(),
-        nama_produk: nama_produk.trim(),
-        harga_modal_rp: parseInt(harga_modal_rp, 10),
-        harga_jual_rp: parseInt(harga_jual_rp, 10),
-        min_stock: parseInt(min_stock, 10),
-        stock: parseInt(stock, 10),
-      });
-
-      Alert.alert('Sukses', 'Produk berhasil ditambahkan');
-      setShowAddModal(false);
-      setAddFormData({
-        sku: '',
-        nama_produk: '',
-        harga_modal_rp: '',
-        harga_jual_rp: '',
-        min_stock: '',
-        stock: '',
-      });
-      await loadProducts();
-    } catch (error) {
-      console.error('Add product error:', error);
-      Alert.alert('Error', error.message || 'Gagal menambahkan produk');
-    } finally {
-      setAddSubmitting(false);
-    }
-  };
-
-  const handleStockAction = async () => {
-    if (!stockQuantity.trim() || !selectedProduct) return;
-    
-    setStockSubmitting(true);
-    try {
-      const quantity = parseInt(stockQuantity, 10);
-      if (isNaN(quantity) || quantity <= 0) {
-        Alert.alert('Error', 'Kuantitas harus berupa angka positif');
-        setStockSubmitting(false);
-        return;
-      }
-
-      if (stockAction === 'IN') {
-        await stockLogService.recordStockIn(selectedProduct.id, session.user.id, quantity, stockNotes.trim());
-        Alert.alert('Sukses', `Stock IN ${quantity} unit berhasil`);
-      } else {
-        await stockLogService.recordStockOut(selectedProduct.id, session.user.id, quantity, stockNotes.trim());
-        Alert.alert('Sukses', `Stock OUT ${quantity} unit berhasil`);
-      }
-
-      setShowStockModal(false);
-      setStockQuantity('');
-      setStockNotes('');
-      setStockAction(null);
-      setSelectedProduct(null);
-      await loadProducts();
-    } catch (error) {
-      console.error('Stock action error:', error);
-      Alert.alert('Error', error.message || 'Terjadi kesalahan');
-    } finally {
-      setStockSubmitting(false);
-    }
-  };
+  // Add handled inside AddEditProductModal (via ref)
 
   const openStockModal = (product, action) => {
-    setSelectedProduct(product);
-    setStockAction(action);
-    setStockQuantity('');
-    setStockNotes('');
-    setShowStockModal(true);
+    // Memanggil fungsi di dalam child component secara langsung.
+    // Parent TIDAK re-render, jadi FlatList tidak berkedip/lag.
+    stockModalRef.current?.open(product, action);
   };
 
   const openAddProductModal = () => {
-    setAddFormData({
-      sku: '',
-      nama_produk: '',
-      harga_modal_non_rp: '',
-      harga_modal_rp: '',
-      harga_jual_rp: '',
-      min_stock: '',
-      stock: '',
-    });
-    setShowAddModal(true);
+    addEditModalRef.current?.open('add');
   };
 
   const openProductDetail = (product) => {
-    setDetailProduct(product);
-    setShowDetailModal(true);
-    setStockLogs([]);
-    setLogsPage(1);
-    setLogsRequested(false);
+    // Open edit modal directly (no separate detail modal)
+    addEditModalRef.current?.open('edit', product);
   };
 
-  const handleEditProduct = () => {
-    if (!detailProduct) return;
-    setEditFormData({
-      nama_produk: detailProduct.nama_produk,
-      harga_modal_non_rp: '',
-      harga_modal_rp: detailProduct.harga_modal_rp.toString(),
-      harga_jual_rp: detailProduct.harga_jual_rp.toString(),
-      stock: detailProduct.stock.toString(),
-      min_stock: detailProduct.min_stock.toString(),
-    });
-    setShowEditModal(true);
-  };
+  // Update & delete handled inside AddEditProductModal (via ref)
 
-  const handleUpdateProduct = async () => {
-    if (!detailProduct) return;
-    
-    const { nama_produk, harga_modal_rp, harga_jual_rp, min_stock } = editFormData;
-    
-    if (!nama_produk.trim() || !harga_modal_rp || !harga_jual_rp || !min_stock) {
-      Alert.alert('Error', 'Semua field harus diisi');
-      return;
-    }
-
-    setEditSubmitting(true);
-    try {
-      await productService.update(detailProduct.id, {
-        nama_produk: nama_produk.trim(),
-        harga_modal_rp: parseInt(harga_modal_rp, 10),
-        harga_jual_rp: parseInt(harga_jual_rp, 10),
-        min_stock: parseInt(min_stock, 10),
-      });
-
-      Alert.alert('Sukses', 'Produk berhasil diperbarui');
-      setShowEditModal(false);
-      await loadProducts();
-      
-      const updated = products.find(p => p.id === detailProduct.id);
-      if (updated) setDetailProduct(updated);
-    } catch (error) {
-      console.error('Update product error:', error);
-      Alert.alert('Error', error.message || 'Gagal memperbarui produk');
-    } finally {
-      setEditSubmitting(false);
-    }
-  };
-
-  const handleDeleteProduct = () => {
-    if (!detailProduct) return;
-    
-    Alert.alert(
-      'Hapus Produk',
-      `Yakin ingin menghapus "${detailProduct.nama_produk}"? Tindakan ini tidak dapat dibatalkan.`,
-      [
-        { text: 'Batal', style: 'cancel' },
-        {
-          text: 'Hapus',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await productService.delete(detailProduct.id);
-              Alert.alert('Sukses', 'Produk berhasil dihapus');
-              setShowDetailModal(false);
-              await loadProducts();
-            } catch (error) {
-              console.error('Delete product error:', error);
-              Alert.alert('Error', error.message || 'Gagal menghapus produk');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleLoadStockLogs = async () => {
-    if (detailProduct) {
-      setLogsRequested(true);
-      await loadStockLogs(detailProduct.id, 1);
-    }
-  };
+  
 
   const loadStockLogs = async (productId, page) => {
     try {
@@ -523,10 +224,10 @@ export default function ProductsScreen() {
   };
 
   const loadMoreLogs = () => {
-    if (!logsLoading && hasMoreLogs && detailProduct) {
+    if (!logsLoading && hasMoreLogs && historyProduct) {
       const nextPage = logsPage + 1;
       setLogsPage(nextPage);
-      loadStockLogs(detailProduct.id, nextPage);
+      loadStockLogs(historyProduct.id, nextPage);
     }
   };
 
@@ -715,357 +416,67 @@ export default function ProductsScreen() {
         />
       )}
 
-      {/* Add Product Modal */}
+      {/* Add/Edit Product Modal (uncontrolled via ref) */}
+      <AddEditProductModal
+        ref={addEditModalRef}
+        jpyToIdr={jpyToIdr}
+        onSuccess={() => loadProducts()}
+        onShowHistory={(prod) => {
+          if (!prod) return;
+          setHistoryProduct(prod);
+          setShowHistoryModal(true);
+          setLogsRequested(true);
+          setStockLogs([]);
+          setLogsPage(1);
+          loadStockLogs(prod.id, 1);
+        }}
+      />
+
+      {/* Stock Action Modal Component - Zero Lag with Ref */}
+      <StockActionModal 
+        ref={stockModalRef}
+        session={session}
+        onSuccess={() => {
+          loadProducts(); // Refresh list hanya setelah sukses submit
+        }}
+      />
+
+      {/* Stock History Modal (opened from edit modal) */}
       <Modal
-        visible={showAddModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowAddModal(false)}
-      >
-        <KeyboardAvoidingView 
-          style={styles.alertOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <TouchableOpacity 
-            style={styles.alertBackdrop} 
-            activeOpacity={1} 
-            onPress={() => setShowAddModal(false)}
-          />
-          <View style={styles.alertWrapper}>
-            <View style={styles.alertContainer}>
-              {/* Header */}
-              <View style={[styles.alertHeader, { backgroundColor: '#eff6ff' }]}>
-                <View style={[styles.alertIconContainer, { backgroundColor: '#3b82f6' }]}>
-                  <MaterialCommunityIcons name="package-variant-plus" size={20} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.alertTitle}>Tambah Produk Baru</Text>
-                  <Text style={styles.alertSubtitle}>Isi detail produk</Text>
-                </View>
-                <TouchableOpacity 
-                  style={styles.alertCloseButton}
-                  onPress={() => setShowAddModal(false)}
-                >
-                  <MaterialCommunityIcons name="close" size={18} color="#6b7280" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Form Content */}
-              <ScrollView style={styles.alertScrollContent}>
-                <View style={styles.alertContentScrollable}>
-                  {/* SKU + Nama Produk */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol40}>
-                      <Text style={styles.formLabel}>SKU</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="ABC123"
-                        value={addFormData.sku}
-                        onChangeText={(text) => setAddFormData({ ...addFormData, sku: text })}
-                        autoCapitalize="characters"
-                      />
-                    </View>
-                    <View style={styles.formCol60}>
-                      <Text style={styles.formLabel}>Nama Produk</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="Nama produk"
-                        value={addFormData.nama_produk}
-                        onChangeText={(text) => setAddFormData({ ...addFormData, nama_produk: text })}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Harga Modal Yen (¥) + RP - Perfect Alignment */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Modal (¥)</Text>
-                      <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>¥</Text>
-                        <TextInput
-                          style={[styles.formInput, styles.inputPrefixed]}
-                          placeholder="0"
-                          value={addFormData.harga_modal_non_rp}
-                          onChangeText={handleNonRpChange}
-                          keyboardType="decimal-pad"
-                        />
-                      </View>
-                      {jpyToIdr && (
-                        <Text style={styles.conversionRateHint}>1¥ = {parseFloat(jpyToIdr).toLocaleString('id-ID')}</Text>
-                      )}
-                    </View>
-                    <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Modal (RP)</Text>
-                      <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>Rp</Text>
-                        <TextInput
-                          style={[styles.formInput, styles.inputPrefixed, styles.inputReadonly]}
-                          value={addFormData.harga_modal_rp ? displayNumberWithSeparator(addFormData.harga_modal_rp) : ''}
-                          editable={false}
-                        />
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Harga Jual, Stock Awal, Min Stock - 3 Columns */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Harga Jual (RP)</Text>
-                      <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>Rp</Text>
-                        <TextInput
-                          style={[styles.formInput, styles.inputPrefixed]}
-                          placeholder="0"
-                          value={addFormData.harga_jual_rp}
-                          onChangeText={handleHargaJualChange}
-                          keyboardType="numeric"
-                        />
-                      </View>
-                    </View>
-                    <View style={styles.formCol25}>
-                      <Text style={styles.formLabel}>Stock Awal</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="0"
-                        value={addFormData.stock}
-                        onChangeText={handleStockChange}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                    <View style={styles.formCol25}>
-                      <Text style={styles.formLabel}>Min Stock</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="0"
-                        value={addFormData.min_stock}
-                        onChangeText={handleMinStockChange}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                  </View>
-                </View>
-              </ScrollView>
-
-              {/* Actions */}
-              <View style={styles.alertActions}>
-                <TouchableOpacity 
-                  style={styles.alertButtonCancel}
-                  onPress={() => setShowAddModal(false)}
-                >
-                  <Text style={styles.alertButtonCancelText}>Batal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.alertButtonConfirm, { backgroundColor: '#3b82f6' }]}
-                  onPress={handleAddProduct}
-                  disabled={addSubmitting}
-                >
-                  {addSubmitting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <MaterialCommunityIcons name="check" size={18} color="#fff" />
-                      <Text style={styles.alertButtonConfirmText}>Simpan</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Stock Action Modal */}
-      <Modal
-        visible={showStockModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowStockModal(false)}
-      >
-        <KeyboardAvoidingView 
-          style={styles.alertOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <TouchableOpacity 
-            style={styles.alertBackdrop} 
-            activeOpacity={1} 
-            onPress={() => setShowStockModal(false)}
-          />
-          <View style={styles.alertWrapper}>
-            <View style={styles.alertContainer}>
-              {/* Header */}
-              <View style={[
-                styles.alertHeader,
-                { backgroundColor: stockAction === 'IN' ? '#f0fdf4' : '#fef2f2' }
-              ]}>
-                <View style={[
-                  styles.alertIconContainer,
-                  { backgroundColor: stockAction === 'IN' ? '#16a34a' : '#dc2626' }
-                ]}>
-                  <MaterialCommunityIcons 
-                    name={stockAction === 'IN' ? 'plus-circle' : 'minus-circle'} 
-                    size={20} 
-                    color="#fff" 
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.alertTitleRow}>
-                    <Text style={styles.alertTitle}>Stock {stockAction}</Text>
-                    <Text style={styles.alertSKU}>({selectedProduct?.sku})</Text>
-                  </View>
-                  <Text style={styles.alertSubtitle}>{selectedProduct?.nama_produk}</Text>
-                </View>
-                <TouchableOpacity 
-                  style={styles.alertCloseButton}
-                  onPress={() => setShowStockModal(false)}
-                >
-                  <MaterialCommunityIcons name="close" size={18} color="#6b7280" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Content */}
-              <View style={styles.alertContent}>
-                <View style={styles.alertInputGroup}>
-                  <View style={styles.alertInputLabelRow}>
-                    <Text style={styles.alertInputLabel}>Qty</Text>
-                    <Text style={styles.alertStockInfo}>
-                      Stock: <Text style={styles.alertStockValue}>{selectedProduct?.stock}</Text>
-                    </Text>
-                  </View>
-                  <TextInput
-                    style={styles.alertInput}
-                    placeholder="Masukkan jumlah"
-                    value={stockQuantity}
-                    onChangeText={setStockQuantity}
-                    keyboardType="numeric"
-                  />
-                </View>
-
-                <View style={styles.alertInputGroup}>
-                  <Text style={styles.alertInputLabel}>Catatan (Opsional)</Text>
-                  <TextInput
-                    style={[styles.alertInput, styles.alertInputMultiline]}
-                    placeholder="Tambahkan catatan..."
-                    value={stockNotes}
-                    onChangeText={setStockNotes}
-                    multiline
-                  />
-                </View>
-              </View>
-
-              {/* Actions */}
-              <View style={styles.alertActions}>
-                <TouchableOpacity 
-                  style={styles.alertButtonCancel}
-                  onPress={() => setShowStockModal(false)}
-                >
-                  <Text style={styles.alertButtonCancelText}>Batal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[
-                    styles.alertButtonConfirm,
-                    { backgroundColor: stockAction === 'IN' ? '#16a34a' : '#dc2626' }
-                  ]}
-                  onPress={handleStockAction}
-                  disabled={stockSubmitting}
-                >
-                  {stockSubmitting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <MaterialCommunityIcons name="check" size={18} color="#fff" />
-                      <Text style={styles.alertButtonConfirmText}>Konfirmasi</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Product Detail Modal */}
-      <Modal
-        visible={showDetailModal}
+        visible={showHistoryModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowDetailModal(false)}
+        onRequestClose={() => setShowHistoryModal(false)}
       >
         <View style={styles.detailModalOverlay}>
           <View style={styles.detailModalContainer}>
-            {/* Header */}
             <View style={styles.detailHeader}>
-              <TouchableOpacity 
-                style={styles.detailBackButton}
-                onPress={() => setShowDetailModal(false)}
-              >
+              <TouchableOpacity style={styles.detailBackButton} onPress={() => setShowHistoryModal(false)}>
                 <MaterialCommunityIcons name="arrow-left" size={24} color="#111827" />
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
-                <Text style={styles.detailTitle}>Detail Produk</Text>
-                <Text style={styles.detailSKU}>{detailProduct?.sku}</Text>
+                <Text style={styles.detailTitle}>Riwayat Stock</Text>
+                <Text style={styles.detailSKU}>{historyProduct?.sku}</Text>
               </View>
             </View>
 
-            {/* Product Info Card */}
             <View style={styles.detailContent}>
-              <View style={styles.detailInfoCard}>
-                {/* Header Row: Nama + Actions */}
-                <View style={styles.detailNameRow}>
-                  <Text style={styles.detailProductName} numberOfLines={2}>{detailProduct?.nama_produk}</Text>
-                  <View style={styles.detailActionButtons}>
-                    <TouchableOpacity style={styles.detailActionBtn} onPress={handleEditProduct}>
-                      <MaterialCommunityIcons name="pencil" size={18} color="#3b82f6" />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.detailActionBtn} onPress={handleDeleteProduct}>
-                      <MaterialCommunityIcons name="trash-can-outline" size={18} color="#ef4444" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                
-                {/* Stock Row */}
-                <View style={styles.detailStockContainer}>
-                  <View style={styles.detailStockBadge}>
-                    <Text style={styles.detailStockLabel}>Stock</Text>
-                    <Text style={styles.detailStockValue}>{detailProduct?.stock}</Text>
-                  </View>
-                  <View style={styles.detailStockMinBadge}>
-                    <Text style={styles.detailStockMinLabel}>Stock Min.</Text>
-                    <Text style={styles.detailStockMinValue}>{detailProduct?.min_stock}</Text>
-                  </View>
-                </View>
-
-                {/* Price Grid - Compact with Icons */}
-                <View style={styles.detailPriceGrid}>
-                  <View style={styles.detailPriceItem}>
-                    <View style={styles.detailPriceWithIcon}>
-                      <MaterialCommunityIcons name="calculator" size={14} color="#6b7280" />
-                      <Text style={styles.detailPriceValue}>{formatCurrency(detailProduct?.harga_modal_rp || 0)}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.detailPriceItem}>
-                    <View style={styles.detailPriceWithIcon}>
-                      <MaterialCommunityIcons name="storefront" size={14} color="#16a34a" />
-                      <Text style={[styles.detailPriceValue, styles.detailPriceValueSell]}>
-                        {formatCurrency(detailProduct?.harga_jual_rp || 0)}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Stock History */}
               <View style={styles.detailHistorySection}>
                 <View style={styles.detailHistoryHeader}>
                   <Text style={styles.detailHistoryTitle}>Riwayat Stock</Text>
                   {logsRequested && (
-                    <Text style={styles.detailHistoryCount}>
-                      {totalLogs} {totalLogs === 1 ? 'transaksi' : 'transaksi'}
-                    </Text>
+                    <Text style={styles.detailHistoryCount}>{totalLogs} transaksi</Text>
                   )}
                 </View>
 
                 {!logsRequested ? (
-                  <TouchableOpacity style={styles.loadHistoryButton} onPress={handleLoadStockLogs}>
+                  <TouchableOpacity style={styles.loadHistoryButton} onPress={() => {
+                    if (!historyProduct) return;
+                    setLogsRequested(true);
+                    setStockLogs([]);
+                    setLogsPage(1);
+                    loadStockLogs(historyProduct.id, 1);
+                  }}>
                     <MaterialCommunityIcons name="history" size={18} color="#fff" />
                     <Text style={styles.loadHistoryButtonText}>Tampilkan Riwayat</Text>
                   </TouchableOpacity>
@@ -1080,55 +491,20 @@ export default function ProductsScreen() {
                     keyExtractor={(item) => item.id.toString()}
                     contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8 }}
                     renderItem={({ item }) => (
-                      <View style={[
-                        styles.logItemCard,
-                        { borderLeftColor: item.type === 'IN' ? '#16a34a' : '#ef4444' }
-                      ]}>
-                        {/* Row 1: User & Time inline */}
+                      <View style={[styles.logItemCard, { borderLeftColor: item.type === 'IN' ? '#16a34a' : '#ef4444' }]}>
                         <View style={styles.logItemTopRow}>
                           <View style={styles.logItemUserRow}>
                             <MaterialCommunityIcons name="account" size={12} color="#9ca3af" />
                             <Text style={styles.logItemUserName}>{item.user_name || 'Unknown'}</Text>
                           </View>
-                          <Text style={styles.logItemTimeText}>
-                            {(() => {
-                              const date = new Date(item.created_at);
-                              const day = date.getDate();
-                              const month = date.toLocaleDateString('id-ID', { month: 'short' });
-                              const year = date.getFullYear();
-                              const time = date.toLocaleTimeString('id-ID', { 
-                                hour: '2-digit', 
-                                minute: '2-digit',
-                                hour12: false 
-                              });
-                              return `${day} ${month} ${year}, ${time}`;
-                            })()}
-                          </Text>
+                          <Text style={styles.logItemTimeText}>{formatDateTime(item.created_at)}</Text>
                         </View>
-                        
-                        {/* Row 2: Icon + Qty Badge + Notes inline */}
                         <View style={styles.logItemBottomRow}>
                           <View style={styles.logItemQtyRow}>
-                            <MaterialCommunityIcons
-                              name={item.type === 'IN' ? 'package-down' : 'package-up'}
-                              size={14}
-                              color={item.type === 'IN' ? '#16a34a' : '#ef4444'}
-                            />
-                            <Text style={[
-                              styles.logItemQtyBadge,
-                              { 
-                                backgroundColor: item.type === 'IN' ? '#dcfce7' : '#fee2e2',
-                                color: item.type === 'IN' ? '#16a34a' : '#ef4444' 
-                              }
-                            ]}>
-                              {item.type === 'IN' ? '+' : '-'}{item.quantity} unit
-                            </Text>
+                            <MaterialCommunityIcons name={item.type === 'IN' ? 'package-down' : 'package-up'} size={14} color={item.type === 'IN' ? '#16a34a' : '#ef4444'} />
+                            <Text style={[styles.logItemQtyBadge, { backgroundColor: item.type === 'IN' ? '#dcfce7' : '#fee2e2', color: item.type === 'IN' ? '#16a34a' : '#ef4444' }]}>{item.type === 'IN' ? '+' : '-'}{item.quantity} unit</Text>
                           </View>
-                          {item.notes && (
-                            <Text style={styles.logItemNotesText} numberOfLines={1}>
-                              {item.notes}
-                            </Text>
-                          )}
+                          {item.notes && (<Text style={styles.logItemNotesText} numberOfLines={1}>{item.notes}</Text>)}
                         </View>
                       </View>
                     )}
@@ -1158,177 +534,7 @@ export default function ProductsScreen() {
         </View>
       </Modal>
 
-      {/* Edit Product Modal */}
-      <Modal
-        visible={showEditModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowEditModal(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.alertOverlay}
-        >
-          <TouchableOpacity 
-            style={styles.alertBackdrop} 
-            activeOpacity={1} 
-            onPress={() => setShowEditModal(false)}
-          />
-          <View style={styles.alertWrapper}>
-            <View style={styles.alertContainer}>
-              {/* Header */}
-              <View style={[styles.alertHeader, { backgroundColor: '#eff6ff' }]}>
-                <View style={[styles.alertIconContainer, { backgroundColor: '#3b82f6' }]}>
-                  <MaterialCommunityIcons name="pencil" size={20} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.alertTitle}>Edit Produk</Text>
-                  <Text style={styles.alertSubtitle}>{detailProduct?.sku}</Text>
-                </View>
-                <TouchableOpacity 
-                  style={styles.alertCloseButton}
-                  onPress={() => setShowEditModal(false)}
-                >
-                  <MaterialCommunityIcons name="close" size={18} color="#6b7280" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Form Content */}
-              <ScrollView style={styles.alertScrollContent}>
-                <View style={styles.alertContentScrollable}>
-                  {/* SKU + Nama Produk */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol40}>
-                      <Text style={styles.formLabel}>SKU</Text>
-                      <TextInput
-                        style={[styles.formInput, styles.inputReadonly]}
-                        placeholder="ABC123"
-                        value={detailProduct?.sku || ''}
-                        editable={false}
-                      />
-                    </View>
-                    <View style={styles.formCol60}>
-                      <Text style={styles.formLabel}>Nama Produk</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="Nama produk"
-                        value={editFormData.nama_produk}
-                        onChangeText={(val) => setEditFormData({...editFormData, nama_produk: val})}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Harga Modal Yen (¥) + RP - Perfect Alignment */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Modal (¥)</Text>
-                      <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>¥</Text>
-                        <TextInput
-                          style={[styles.formInput, styles.inputPrefixed]}
-                          placeholder="0"
-                          value={editFormData.harga_modal_non_rp || ''}
-                          onChangeText={(val) => {
-                            const parseValue = val.replace(/\./g, '').replace(',', '.');
-                            let conversionValue = '';
-                            if (parseValue && jpyToIdr > 0) {
-                              const yen = parseFloat(parseValue);
-                              if (!isNaN(yen)) {
-                                conversionValue = Math.round(yen * parseFloat(jpyToIdr)).toString();
-                              }
-                            }
-                            setEditFormData({
-                              ...editFormData,
-                              harga_modal_non_rp: val,
-                              harga_modal_rp: conversionValue,
-                            });
-                          }}
-                          keyboardType="decimal-pad"
-                        />
-                      </View>
-                      {jpyToIdr && (
-                        <Text style={styles.conversionRateHint}>1¥ = {parseFloat(jpyToIdr).toLocaleString('id-ID')}</Text>
-                      )}
-                    </View>
-                    <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Modal (RP)</Text>
-                      <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>Rp</Text>
-                        <TextInput
-                          style={[styles.formInput, styles.inputPrefixed, styles.inputReadonly]}
-                          value={editFormData.harga_modal_rp ? displayNumberWithSeparator(editFormData.harga_modal_rp) : ''}
-                          editable={false}
-                        />
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Harga Jual, Stock Awal, Min Stock - 3 Columns */}
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol50}>
-                      <Text style={styles.formLabel}>Harga Jual (RP)</Text>
-                      <View style={styles.inputWithPrefix}>
-                        <Text style={styles.inputPrefix}>Rp</Text>
-                        <TextInput
-                          style={[styles.formInput, styles.inputPrefixed]}
-                          placeholder="0"
-                          value={editFormData.harga_jual_rp}
-                          onChangeText={(val) => setEditFormData({...editFormData, harga_jual_rp: val.replace(/[^0-9]/g, '')})}
-                          keyboardType="numeric"
-                        />
-                      </View>
-                    </View>
-                    <View style={styles.formCol25}>
-                      <Text style={styles.formLabel}>Stock Awal</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="0"
-                        value={editFormData.stock || ''}
-                        onChangeText={(val) => setEditFormData({...editFormData, stock: val.replace(/[^0-9]/g, '')})}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                    <View style={styles.formCol25}>
-                      <Text style={styles.formLabel}>Min Stock</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        placeholder="0"
-                        value={editFormData.min_stock}
-                        onChangeText={(val) => setEditFormData({...editFormData, min_stock: val.replace(/[^0-9]/g, '')})}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                  </View>
-                </View>
-              </ScrollView>
-
-              {/* Actions */}
-              <View style={styles.alertActions}>
-                <TouchableOpacity 
-                  style={styles.alertButtonCancel}
-                  onPress={() => setShowEditModal(false)}
-                >
-                  <Text style={styles.alertButtonCancelText}>Batal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.alertButtonConfirm, { backgroundColor: '#3b82f6' }]}
-                  onPress={handleUpdateProduct}
-                  disabled={editSubmitting}
-                >
-                  {editSubmitting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <MaterialCommunityIcons name="check" size={18} color="#fff" />
-                      <Text style={styles.alertButtonConfirmText}>Simpan</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      
     </View>
   );
 }
