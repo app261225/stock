@@ -7,6 +7,8 @@ import { useSession } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import productService from '../../services/productService';
 import stockLogService from '../../services/stockLogService';
+import StockLogDAO from '../../lib/dao/StockLogDAO';
+import EventBus from '../../lib/EventBus';
 import StockActionModal from '../components/StockActionModal';
 import AddEditProductModal from '../components/AddEditProductModal';
 
@@ -47,6 +49,14 @@ export default function ProductsScreen() {
 
   useEffect(() => {
     loadProducts();
+    // Auto-refresh on local stock log changes (IN/OUT)
+    const unsubStockLogDAO = StockLogDAO.onChange(() => loadProducts());
+
+    // Subscribe to force_refresh event dari profile screen
+    const unsubForceRefresh = EventBus.on('force_refresh', (data) => {
+      console.log('[Products] Received force_refresh event:', data);
+      loadProducts();
+    });
     
     // Keyboard listeners
     const keyboardDidShowListener = Keyboard.addListener(
@@ -57,8 +67,9 @@ export default function ProductsScreen() {
       'keyboardDidHide',
       () => setKeyboardHeight(0)
     );
-
     return () => {
+      unsubStockLogDAO();
+      unsubForceRefresh();
       keyboardDidShowListener.remove();
       keyboardDidHideListener.remove();
     };
@@ -87,6 +98,7 @@ export default function ProductsScreen() {
 
   const loadProducts = async () => {
     try {
+      // Try AsyncStorage cache first
       if (!cacheLoaded) {
         const cached = await AsyncStorage.getItem(CACHE_KEY);
         if (cached) {
@@ -94,17 +106,25 @@ export default function ProductsScreen() {
           setProducts(cachedData);
           setCacheLoaded(true);
           setLoading(false);
+          console.log('[Products] Loaded', cachedData.length, 'products from cache');
         }
       }
 
       setLoading(true);
       const data = await productService.getAll(true);
-      setProducts(data);
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data));
-      setCacheLoaded(true);
+      
+      if (data && data.length > 0) {
+        setProducts(data);
+        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data));
+        setCacheLoaded(true);
+        console.log('[Products] Loaded and cached', data.length, 'products from Supabase');
+      }
     } catch (error) {
-      console.error('Load products error:', error);
-      Alert.alert('Error', 'Gagal memuat produk');
+      console.error('[Products] Load error:', error);
+      // Tetap tampilkan cache yang ada, jangan tampilkan error alert
+      if (!cacheLoaded) {
+        Alert.alert('Error', 'Gagal memuat produk');
+      }
     } finally {
       setLoading(false);
     }

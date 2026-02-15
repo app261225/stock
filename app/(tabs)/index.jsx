@@ -5,6 +5,7 @@ import { useSession } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import productService from '../../services/productService';
 import stockLogService from '../../services/stockLogService';
+import EventBus from '../../lib/EventBus';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2; // 16px padding + 16px gap
@@ -46,6 +47,66 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     loadDashboardData();
+
+    // Subscribe to stock_action event untuk update otomatis
+    const unsubscribeStockAction = EventBus.on('stock_action', (data) => {
+      console.log('[Dashboard] Received stock_action event:', data);
+      
+      // Update today stats
+      setTodayStats(prevStats => ({
+        ...prevStats,
+        transactionCount: prevStats.transactionCount + 1,
+        totalIn: data.type === 'IN' ? prevStats.totalIn + data.quantity : prevStats.totalIn,
+        totalOut: data.type === 'OUT' ? prevStats.totalOut + data.quantity : prevStats.totalOut,
+        countIn: data.type === 'IN' ? prevStats.countIn + 1 : prevStats.countIn,
+        countOut: data.type === 'OUT' ? prevStats.countOut + 1 : prevStats.countOut,
+      }));
+
+      // Update all-time stats
+      setAllTimeStats(prevStats => ({
+        ...prevStats,
+        totalIn: data.type === 'IN' ? prevStats.totalIn + data.quantity : prevStats.totalIn,
+        totalOut: data.type === 'OUT' ? prevStats.totalOut + data.quantity : prevStats.totalOut,
+        countIn: data.type === 'IN' ? prevStats.countIn + 1 : prevStats.countIn,
+        countOut: data.type === 'OUT' ? prevStats.countOut + 1 : prevStats.countOut,
+        lastIn: data.type === 'IN' ? data.created_at : prevStats.lastIn,
+        lastOut: data.type === 'OUT' ? data.created_at : prevStats.lastOut,
+      }));
+
+      // Update stock value jika perlu (kurang akurat dari Supabase, tapi cukup untuk UI)
+      setStockValue(prevValue => ({
+        ...prevValue,
+        // Bisa di-update lebih akurat dengan refetch, tapi untuk sekarang skip
+      }));
+
+      // Update stats untuk Out of Stock / Low Stock
+      setStats(prevStats => {
+        let newStats = { ...prevStats };
+        if (data.stock_after === 0) {
+          // Jadi out of stock
+          if (data.stock_before > 0) {
+            newStats.outOfStock = (newStats.outOfStock || 0) + 1;
+            newStats.healthy = Math.max(0, (newStats.healthy || 0) - 1);
+          }
+        } else if (data.stock_before === 0 && data.stock_after > 0) {
+          // Dari out of stock jadi ada stock
+          newStats.outOfStock = Math.max(0, (newStats.outOfStock || 0) - 1);
+          newStats.healthy = (newStats.healthy || 0) + 1;
+        }
+        return newStats;
+      });
+    });
+
+    // Subscribe to force_refresh event dari profile screen
+    const unsubscribeForceRefresh = EventBus.on('force_refresh', (data) => {
+      console.log('[Dashboard] Received force_refresh event:', data);
+      loadDashboardData();
+    });
+
+    return () => {
+      unsubscribeStockAction();
+      unsubscribeForceRefresh();
+    };
   }, []);
 
   useEffect(() => {
@@ -86,8 +147,8 @@ export default function DashboardScreen() {
       ]);
 
       setStats(stockStats);
-      console.log('todaySummary:', todaySummary);
-      console.log('allTimeSummary:', allTimeSummary);
+      console.log('[Dashboard] todaySummary:', todaySummary);
+      console.log('[Dashboard] allTimeSummary:', allTimeSummary);
       setTodayStats({
         totalIn: todaySummary.total_in,
         totalOut: todaySummary.total_out,
@@ -105,7 +166,8 @@ export default function DashboardScreen() {
         lastOut: allTimeSummary.last_out || null,
       });
     } catch (error) {
-      console.error('Load dashboard data error:', error);
+      console.error('[Dashboard] Load error:', error);
+      Alert.alert('Error', 'Gagal memuat data dashboard');
     } finally {
       setLoading(false);
     }
@@ -468,9 +530,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOpacity: 0.005,
+    shadowRadius: 1,
+    elevation: 0.5,
   },
   quickActionIcon: {
     width: 44,
@@ -509,10 +571,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.005,
+    shadowRadius: 1,
+    elevation: 0.5,
   },
   statusInlineIconWrapper: {
     width: 44,
@@ -548,10 +610,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.005,
+    shadowRadius: 1,
+    elevation: 0.5,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
@@ -577,15 +639,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   activityCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#e5e7eb',
   },
   compactStatHeader: {
     flexDirection: 'row',

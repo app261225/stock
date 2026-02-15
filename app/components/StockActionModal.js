@@ -2,6 +2,8 @@ import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import { View, Text, Modal, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import stockLogService from '../../services/stockLogService';
+import StockLogDAO from '../../lib/dao/StockLogDAO';
+import EventBus from '../../lib/EventBus';
 
 // Gunakan forwardRef agar parent bisa memanggil fungsi di dalam sini
 const StockActionModal = forwardRef(({ onSuccess, session }, ref) => {
@@ -42,12 +44,50 @@ const StockActionModal = forwardRef(({ onSuccess, session }, ref) => {
         return;
       }
 
+      let logResult;
       if (action === 'IN') {
-        await stockLogService.recordStockIn(product.id, session.user.id, qtyInt, notes.trim());
+        logResult = await stockLogService.recordStockIn(product.id, session.user.id, qtyInt, notes.trim());
         Alert.alert('Sukses', `Stock IN ${qtyInt} unit berhasil`);
       } else {
-        await stockLogService.recordStockOut(product.id, session.user.id, qtyInt, notes.trim());
+        logResult = await stockLogService.recordStockOut(product.id, session.user.id, qtyInt, notes.trim());
         Alert.alert('Sukses', `Stock OUT ${qtyInt} unit berhasil`);
+      }
+      // Insert ke DAO lokal agar log langsung muncul di UI offline
+      if (logResult && logResult.id) {
+        // Normalisasi log agar sesuai field DAO
+        await StockLogDAO.insert({
+          id: logResult.id,
+          product_id: logResult.product_id,
+          user_id: logResult.user_id,
+          type: logResult.type,
+          quantity: logResult.quantity,
+          stock_before: logResult.stock_before,
+          stock_after: logResult.stock_after,
+          notes: logResult.notes,
+          created_at: logResult.created_at,
+        });
+
+        // Emit event untuk dashboard & log screen untuk update otomatis
+        EventBus.emit('stock_action', {
+          type: action,
+          product_id: product.id,
+          product: {
+            id: product.id,
+            nama_produk: product.nama_produk,
+            sku: product.sku,
+          },
+          user_id: session.user.id,
+          user: {
+            id: session.user.id,
+            name: session.user.name,
+          },
+          quantity: logResult.quantity,
+          stock_before: logResult.stock_before,
+          stock_after: logResult.stock_after,
+          notes: logResult.notes,
+          created_at: logResult.created_at,
+          logId: logResult.id,
+        });
       }
 
       setVisible(false);

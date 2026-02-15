@@ -1,9 +1,11 @@
-import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, TextInput } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, TextInput, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSession } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import configService from '../../services/configService';
 import { useState, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import EventBus from '../../lib/EventBus';
 
 export default function ProfileScreen() {
   const { session, signOut } = useSession();
@@ -13,12 +15,29 @@ export default function ProfileScreen() {
   const [jpyValue, setJpyValue] = useState('0');
   const [savedJpyValue, setSavedJpyValue] = useState('0');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState(null);
   
   const jpyInputRef = useRef(null);
   
   const isJpyChanged = jpyValue !== savedJpyValue;
 
-  // Sync dengan context value
+  // Load last update time from AsyncStorage
+  useEffect(() => {
+    const loadLastUpdateTime = async () => {
+      try {
+        const savedTime = await AsyncStorage.getItem('last_data_update_time');
+        if (savedTime) {
+          setLastUpdateTime(savedTime);
+        }
+      } catch (error) {
+        console.error('[Profile] Error loading last update time:', error);
+      }
+    };
+    loadLastUpdateTime();
+  }, []);
+
+  // Sync dengan context value jpyToIdr
   useEffect(() => {
     setJpyValue(jpyToIdr);
     setSavedJpyValue(jpyToIdr);
@@ -45,6 +64,58 @@ export default function ProfileScreen() {
       Alert.alert('❌ Error', error.message);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleRefreshAllData = async () => {
+    setIsRefreshing(true);
+    try {
+      console.log('[Profile] Refreshing all data...');
+      
+      // Simpan timestamp update terakhir ke AsyncStorage (bertahan lama > 1 bulan)
+      const now = new Date().toISOString();
+      await AsyncStorage.setItem('last_data_update_time', now);
+      setLastUpdateTime(now);
+      
+      // Emit event force_refresh ke semua halaman
+      EventBus.emit('force_refresh', {
+        timestamp: now,
+        source: 'profile',
+      });
+      
+      Alert.alert('✅ Berhasil', 'Data dashboard, products, dan log sedang di-refresh');
+      console.log('[Profile] Refresh triggered at', now);
+    } catch (error) {
+      console.error('[Profile] Refresh error:', error);
+      Alert.alert('❌ Error', 'Gagal melakukan refresh data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const formatLastUpdateTime = (isoString) => {
+    if (!isoString) return 'Belum pernah';
+    try {
+      const date = new Date(isoString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      if (diffMins < 1) return 'Baru saja';
+      if (diffMins < 60) return `${diffMins} menit lalu`;
+      if (diffHours < 24) return `${diffHours} jam lalu`;
+      if (diffDays < 30) return `${diffDays} hari lalu`;
+      
+      // Format tanggal lengkap
+      const day = date.getDate();
+      const month = date.toLocaleDateString('id-ID', { month: 'short' });
+      const year = date.getFullYear();
+      const time = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      return `${time} • ${day} ${month} ${year}`;
+    } catch (e) {
+      return isoString;
     }
   };
 
@@ -170,31 +241,44 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Realtime Config Display Card */}
+      {/* Data Refresh Section */}
       <View style={styles.section}>
-        <View style={styles.realtimeHeaderRow}>
-          <Text style={styles.sectionTitle}>Konfigurasi Realtime</Text>
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>LIVE</Text>
+        <Text style={styles.sectionTitle}>Perbaharui Data</Text>
+        
+        {/* Last Update Info Card */}
+        <View style={styles.lastUpdateCard}>
+          <View style={styles.lastUpdateContent}>
+            <MaterialCommunityIcons name="clock-outline" size={18} color="#6b7280" />
+            <View style={styles.lastUpdateTextCol}>
+              <Text style={styles.lastUpdateLabel}>Terakhir diperbaharui</Text>
+              <Text style={styles.lastUpdateTime}>{formatLastUpdateTime(lastUpdateTime)}</Text>
+            </View>
           </View>
         </View>
 
-        <View style={styles.realtimeCard}>
-          <View style={styles.realtimeCardContent}>
-            <View>
-              <Text style={styles.realtimeKey}>jpy_to_idr</Text>
-              <Text style={styles.realtimeDesc}>Kurs Yen Jepang ke Rupiah</Text>
-            </View>
-            <View style={styles.realtimeValue}>
-              <Text style={styles.realtimeAmount}>{jpyToIdr || '0'}</Text>
-              <Text style={styles.realtimeCurrency}>IDR</Text>
-            </View>
-          </View>
-          <Text style={styles.realtimeFooter}>
-            💡 Diperbarui realtime untuk semua pengguna
-          </Text>
-        </View>
+        {/* Refresh Button */}
+        <TouchableOpacity 
+          style={[styles.refreshButton, isRefreshing && styles.refreshButtonDisabled]}
+          onPress={handleRefreshAllData}
+          activeOpacity={0.7}
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? (
+            <>
+              <MaterialCommunityIcons name="loading" size={18} color="#fff" />
+              <Text style={styles.refreshButtonText}>Sedang memperbaharui...</Text>
+            </>
+          ) : (
+            <>
+              <MaterialCommunityIcons name="refresh" size={18} color="#fff" />
+              <Text style={styles.refreshButtonText}>Perbaharui Dashboard, Products & Log</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        
+        <Text style={styles.refreshNote}>
+          ℹ️ Tombol ini akan me-refresh data di halaman dashboard, products, dan log. Perubahan akan tersimpan di cache lokal hingga lebih dari 1 bulan.
+        </Text>
       </View>
 
       {/* Logout Button */}
@@ -259,11 +343,11 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: '#fff',
     marginHorizontal: 16,
-    marginVertical: 12,
-    marginTop: 16,
+    marginVertical: 6,
+    marginTop: 8,
     borderRadius: 8,
-    padding: 12,
-    gap: 4,
+    padding: 14,
+    gap: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -278,7 +362,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   configInputGroup: {
-    gap: 4,
+    gap: 2,
   },
   configLabel: {
     fontSize: 13,
@@ -288,7 +372,7 @@ const styles = StyleSheet.create({
   configInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   inputWithButton: {
     flex: 1,
@@ -405,6 +489,59 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#bbf7d0',
+  },
+  lastUpdateCard: {
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 4,
+  },
+  lastUpdateContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  lastUpdateTextCol: {
+    flex: 1,
+  },
+  lastUpdateLabel: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  lastUpdateTime: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+    marginTop: 2,
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  refreshButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    opacity: 0.7,
+  },
+  refreshButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  refreshNote: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
   logoutButton: {
     flexDirection: 'row',

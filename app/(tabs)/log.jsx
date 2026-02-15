@@ -14,6 +14,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRoute } from '@react-navigation/native';
 import { useSession } from '../../contexts/AuthContext';
 import stockLogService from '../../services/stockLogService';
+import StockLogDAO from '../../lib/dao/StockLogDAO';
+import EventBus from '../../lib/EventBus';
 
 export default function LogScreen() {
   const { session } = useSession();
@@ -37,18 +39,106 @@ export default function LogScreen() {
     }, [route.params?.filter])
   );
 
-  // Load initial data
+  // Load initial data once when screen mounts
   useEffect(() => {
     loadLogs();
+
+    // Subscribe to stock_action event untuk append card baru
+    const unsubscribeStockAction = EventBus.on('stock_action', (data) => {
+      console.log('[Log] Received stock_action event:', data);
+      // Append card baru ke list tanpa full reload
+      const newLog = {
+        id: data.logId,
+        product_id: data.product_id,
+        user_id: data.user_id,
+        type: data.type,
+        quantity: data.quantity,
+        stock_before: data.stock_before,
+        stock_after: data.stock_after,
+        notes: data.notes,
+        created_at: data.created_at,
+        product: data.product,
+        user: data.user,
+      };
+      
+      // Enrich dengan product & user info jika tidak lengkap
+      const enrichedLog = enrichLogsWithProductInfo([newLog])[0];
+      
+      console.log('[Log] Enriched log:', enrichedLog);
+      setAllLogs(prevLogs => [enrichedLog, ...prevLogs]);
+    });
+
+    // Subscribe to force_refresh event dari profile screen
+    const unsubscribeForceRefresh = EventBus.on('force_refresh', (data) => {
+      console.log('[Log] Received force_refresh event:', data);
+      loadLogs();
+    });
+
+    return () => {
+      unsubscribeStockAction();
+      unsubscribeForceRefresh();
+    };
   }, []);
+
+  const enrichLogsWithProductInfo = (logs) => {
+    // Enrich logs dengan product & user info (dari Supabase response atau lokal)
+    return logs.map(log => ({
+      ...log,
+      product: log.product || { id: log.product_id, nama_produk: 'Product', sku: '-' },
+      user: log.user || { id: log.user_id, name: 'Unknown' },
+    }));
+  };
 
   const loadLogs = async () => {
     setIsLoadingInitial(true);
     try {
-      const response = await stockLogService.getAll();
-      setAllLogs(response?.logs || []);
+      // Always prioritize Supabase for display (dengan product & user detail)
+      let logs = [];
+      let useLocalFallback = false;
+
+      try {
+        // Try Supabase first
+        const response = await stockLogService.getAll();
+        logs = response?.logs || [];
+        console.log('[Log] Fetched', logs.length, 'logs from Supabase with product details');
+        
+        // Async sync ke DAO untuk offline use (non-blocking)
+        if (logs.length > 0) {
+          const daoLogs = logs.map(log => ({
+            id: log.id,
+            product_id: log.product?.id || '',
+            user_id: log.user?.id || '',
+            type: log.type,
+            quantity: log.quantity,
+            stock_before: log.stock_before,
+            stock_after: log.stock_after,
+            notes: log.notes,
+            created_at: log.created_at,
+          }));
+          StockLogDAO.batchInsert(daoLogs).catch(err => 
+            console.error('[Log] Background DAO sync error:', err)
+          );
+        }
+      } catch (supabaseErr) {
+        // Fallback ke DAO lokal jika Supabase gagal (offline mode)
+        console.warn('[Log] Supabase unavailable, using local DAO:', supabaseErr.message);
+        useLocalFallback = true;
+        
+        try {
+          logs = await StockLogDAO.getRecent(100);
+          console.log('[Log] Using', logs?.length || 0, 'logs from local DAO (offline)');
+        } catch (daoErr) {
+          console.error('[Log] DAO fallback error:', daoErr);
+          logs = [];
+        }
+      }
+      
+      // Display dengan product & user info
+      const enriched = enrichLogsWithProductInfo(logs);
+      setAllLogs(enriched);
     } catch (error) {
-      console.error('Load logs error:', error);
+      console.error('[Log] loadLogs unexpected error:', error);
+      setAllLogs([]);
     } finally {
       setIsLoadingInitial(false);
     }
