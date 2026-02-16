@@ -97,6 +97,33 @@ export default function DashboardScreen() {
       });
     });
 
+    // Subscribe to product_changed event untuk update saat add/edit/delete produk
+    const unsubscribeProductChanged = EventBus.on('product_changed', (data) => {
+      console.log('[Dashboard] Received product_changed event:', data);
+      
+      // Update stats berdasarkan action
+      if (data.action === 'add') {
+        setStats(prevStats => ({
+          ...prevStats,
+          total: prevStats.total + 1,
+          // Classify based on initial stock
+          outOfStock: data.product.stock === 0 ? prevStats.outOfStock + 1 : prevStats.outOfStock,
+          lowStock: data.product.stock > 0 && data.product.stock <= data.product.min_stock ? prevStats.lowStock + 1 : prevStats.lowStock,
+          healthy: data.product.stock > data.product.min_stock ? prevStats.healthy + 1 : prevStats.healthy,
+        }));
+      } else if (data.action === 'delete') {
+        setStats(prevStats => ({
+          ...prevStats,
+          total: Math.max(0, prevStats.total - 1),
+        }));
+      }
+      
+      // Refresh stock value for add/edit/delete
+      productService.getStockValue().then(value => {
+        setStockValue(value);
+      }).catch(err => console.error('[Dashboard] Error updating stock value:', err));
+    });
+
     // Subscribe to force_refresh event dari profile screen
     const unsubscribeForceRefresh = EventBus.on('force_refresh', (data) => {
       console.log('[Dashboard] Received force_refresh event:', data);
@@ -105,6 +132,7 @@ export default function DashboardScreen() {
 
     return () => {
       unsubscribeStockAction();
+      unsubscribeProductChanged();
       unsubscribeForceRefresh();
     };
   }, []);

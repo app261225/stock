@@ -2,6 +2,7 @@ import React, { useState, forwardRef, useImperativeHandle, useEffect } from 'rea
 import { View, Text, Modal, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, ScrollView, Platform, StyleSheet, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import productService from '../../services/productService';
+import EventBus from '../../lib/EventBus';
 
 const AddEditProductModal = forwardRef(({ jpyToIdr, onSuccess, onShowHistory }, ref) => {
   const [visible, setVisible] = useState(false);
@@ -102,7 +103,7 @@ const AddEditProductModal = forwardRef(({ jpyToIdr, onSuccess, onShowHistory }, 
     setSubmitting(true);
     try {
       if (mode === 'add') {
-        await productService.create({
+        const newProduct = await productService.create({
           sku: sku.trim(),
           nama_produk: nama_produk.trim(),
           harga_modal_non_rp: parseFloat(form.harga_modal_non_rp.replace(/\./g, '').replace(',', '.')) || 0,
@@ -111,19 +112,35 @@ const AddEditProductModal = forwardRef(({ jpyToIdr, onSuccess, onShowHistory }, 
           min_stock: parseInt(min_stock, 10),
           stock: parseInt(stock, 10),
         });
+        
+        // Emit event untuk update dashboard
+        EventBus.emit('product_changed', {
+          action: 'add',
+          product: newProduct,
+        });
+        
         Alert.alert('Sukses', 'Produk berhasil ditambahkan');
+        setVisible(false);
+        if (onSuccess) onSuccess('add', newProduct);
       } else if (mode === 'edit' && product) {
-        await productService.update(product.id, {
+        const updatedProduct = await productService.update(product.id, {
           nama_produk: nama_produk.trim(),
           harga_modal_non_rp: parseFloat(form.harga_modal_non_rp.replace(/\./g, '').replace(',', '.')) || 0,
           harga_modal_rp: parseInt(harga_modal_rp, 10),
           harga_jual_rp: parseInt(harga_jual_rp, 10),
           min_stock: parseInt(min_stock, 10),
         });
+        
+        // Emit event untuk update dashboard
+        EventBus.emit('product_changed', {
+          action: 'edit',
+          product: updatedProduct,
+        });
+        
         Alert.alert('Sukses', 'Produk berhasil diperbarui');
+        setVisible(false);
+        if (onSuccess) onSuccess('edit', updatedProduct);
       }
-      setVisible(false);
-      if (onSuccess) onSuccess();
     } catch (error) {
       console.error('Add/Edit product error:', error);
       Alert.alert('Error', error.message || 'Gagal menyimpan produk');
@@ -146,9 +163,16 @@ const AddEditProductModal = forwardRef(({ jpyToIdr, onSuccess, onShowHistory }, 
             try {
               setSubmitting(true);
               await productService.delete(product.id);
+              
+              // Emit event untuk update dashboard
+              EventBus.emit('product_changed', {
+                action: 'delete',
+                product: { id: product.id },
+              });
+              
               Alert.alert('Sukses', 'Produk berhasil dihapus');
               setVisible(false);
-              if (onSuccess) onSuccess();
+              if (onSuccess) onSuccess('delete', { id: product.id });
             } catch (error) {
               console.error('Delete product error:', error);
               Alert.alert('Error', error.message || 'Gagal menghapus produk');

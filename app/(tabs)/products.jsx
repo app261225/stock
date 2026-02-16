@@ -49,8 +49,9 @@ export default function ProductsScreen() {
 
   useEffect(() => {
     loadProducts();
-    // Auto-refresh on local stock log changes (IN/OUT)
-    const unsubStockLogDAO = StockLogDAO.onChange(() => loadProducts());
+    
+    // Removed: StockLogDAO.onChange auto-reload (sudah pakai optimistic update)
+    // const unsubStockLogDAO = StockLogDAO.onChange(() => loadProducts());
 
     // Subscribe to force_refresh event dari profile screen
     const unsubForceRefresh = EventBus.on('force_refresh', (data) => {
@@ -68,7 +69,7 @@ export default function ProductsScreen() {
       () => setKeyboardHeight(0)
     );
     return () => {
-      unsubStockLogDAO();
+      // unsubStockLogDAO(); // Removed
       unsubForceRefresh();
       keyboardDidShowListener.remove();
       keyboardDidHideListener.remove();
@@ -141,6 +142,38 @@ export default function ProductsScreen() {
     await loadProducts();
     setRefreshing(false);
   }, []);
+
+  // Optimistic update functions - update state langsung tanpa reload
+  const updateProductInState = (productId, updates) => {
+    setProducts(prev => {
+      const index = prev.findIndex(p => p.id === productId);
+      if (index === -1) return prev;
+      
+      const updated = [...prev];
+      updated[index] = { ...updated[index], ...updates };
+      
+      // Update cache immediately
+      AsyncStorage.setItem(CACHE_KEY, JSON.stringify(updated));
+      
+      return updated;
+    });
+  };
+
+  const addProductToState = (newProduct) => {
+    setProducts(prev => {
+      const updated = [newProduct, ...prev];
+      AsyncStorage.setItem(CACHE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const removeProductFromState = (productId) => {
+    setProducts(prev => {
+      const updated = prev.filter(p => p.id !== productId);
+      AsyncStorage.setItem(CACHE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   const applyFilter = () => {
     let filtered = [...products];
@@ -440,7 +473,30 @@ export default function ProductsScreen() {
       <AddEditProductModal
         ref={addEditModalRef}
         jpyToIdr={jpyToIdr}
-        onSuccess={() => loadProducts()}
+        onSuccess={(mode, productData) => {
+          // Optimistic update berdasarkan mode
+          if (mode === 'add' && productData) {
+            console.log('[Products] Product added optimistically:', productData);
+            addProductToState(productData);
+          } else if (mode === 'edit' && productData) {
+            console.log('[Products] Product updated optimistically:', productData);
+            updateProductInState(productData.id, productData);
+          } else if (mode === 'delete' && productData?.id) {
+            console.log('[Products] Product deleted optimistically:', productData.id);
+            removeProductFromState(productData.id);
+          }
+          // Background refresh untuk sinkronisasi (tanpa loading indicator)
+          if (mode !== 'delete') {
+            setTimeout(() => {
+              productService.getAll(true).then(data => {
+                if (data && data.length > 0) {
+                  setProducts(data);
+                  AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data));
+                }
+              }).catch(err => console.error('Background sync error:', err));
+            }, 300);
+          }
+        }}
         onShowHistory={(prod) => {
           if (!prod) return;
           setHistoryProduct(prod);
@@ -456,8 +512,32 @@ export default function ProductsScreen() {
       <StockActionModal 
         ref={stockModalRef}
         session={session}
-        onSuccess={() => {
-          loadProducts(); // Refresh list hanya setelah sukses submit
+        onSuccess={(productId, action, quantity, newStock) => {
+          // Validasi productId sebelum update
+          if (!productId) {
+            console.error('[Products] Invalid productId in onSuccess callback');
+            // Fallback: reload semua data jika productId tidak valid
+            loadProducts();
+            return;
+          }
+          
+          // Optimistic update: langsung update stock di state tanpa reload
+          console.log('[Products] Stock updated optimistically:', { productId, action, quantity, newStock });
+          updateProductInState(productId, { stock: newStock });
+          
+          // Background refresh untuk sinkronisasi data yang akurat
+          setTimeout(() => {
+            productService.getById(productId).then(updated => {
+              if (updated) {
+                updateProductInState(productId, updated);
+                console.log('[Products] Background sync completed for:', productId);
+              }
+            }).catch(err => {
+              console.error('[Products] Background sync error:', err);
+              // Jika gagal sync, reload semua data sebagai fallback
+              loadProducts();
+            });
+          }, 200);
         }}
       />
 

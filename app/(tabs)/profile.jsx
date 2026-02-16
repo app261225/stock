@@ -37,6 +37,39 @@ export default function ProfileScreen() {
     loadLastUpdateTime();
   }, []);
 
+  // Auto-refresh setiap 5 menit
+  useEffect(() => {
+    console.log('[Profile] Setting up auto-refresh timer (5 minutes)');
+    
+    const performAutoRefresh = async () => {
+      console.log('[Profile] Auto-refresh triggered');
+      setIsRefreshing(true);
+      try {
+        const now = new Date().toISOString();
+        await AsyncStorage.setItem('last_data_update_time', now);
+        setLastUpdateTime(now);
+        
+        EventBus.emit('force_refresh', {
+          timestamp: now,
+          source: 'auto-refresh',
+        });
+        
+        console.log('[Profile] Auto-refresh completed at', now);
+      } catch (error) {
+        console.error('[Profile] Auto-refresh error:', error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    };
+    
+    const autoRefreshInterval = setInterval(performAutoRefresh, 5 * 60 * 1000); // 5 menit
+
+    return () => {
+      console.log('[Profile] Clearing auto-refresh timer');
+      clearInterval(autoRefreshInterval);
+    };
+  }, []);
+
   // Sync dengan context value jpyToIdr
   useEffect(() => {
     setJpyValue(jpyToIdr);

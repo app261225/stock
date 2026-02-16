@@ -91,7 +91,16 @@ const StockActionModal = forwardRef(({ onSuccess, session }, ref) => {
       }
 
       setVisible(false);
-      if (onSuccess) onSuccess(); // Refresh data di parent
+      
+      // Kirim data lengkap ke callback untuk optimistic update
+      if (onSuccess && logResult) {
+        onSuccess(
+          product.id,              // productId
+          action,                  // 'IN' atau 'OUT'
+          qtyInt,                  // quantity
+          logResult.stock_after    // stock baru setelah operasi
+        );
+      }
     } catch (error) {
       console.error('Stock action error:', error);
       Alert.alert('Error', error.message || 'Terjadi kesalahan');
